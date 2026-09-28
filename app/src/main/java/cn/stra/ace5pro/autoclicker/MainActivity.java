@@ -150,17 +150,13 @@ public final class MainActivity extends Activity {
 
         LinearLayout tools = new LinearLayout(this); tools.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout speed = tile("速度测试", "CPS 与点击间隔", "↗");
-        LinearLayout time = tile("校时详情", "NTP 与网络延迟", "◷");
+        LinearLayout access = tile("悬浮权限", "授权与窗口管理", "◉");
         tools.addView(speed, new LinearLayout.LayoutParams(0, dp(108), 1));
-        LinearLayout.LayoutParams timeTileLp = new LinearLayout.LayoutParams(0, dp(108), 1); timeTileLp.leftMargin = dp(10);
-        tools.addView(time, timeTileLp); LinearLayout.LayoutParams toolsLp = new LinearLayout.LayoutParams(-1, -2); toolsLp.topMargin = dp(10);
+        LinearLayout.LayoutParams accessLp = new LinearLayout.LayoutParams(0, dp(108), 1); accessLp.leftMargin = dp(10);
+        tools.addView(access, accessLp); LinearLayout.LayoutParams toolsLp = new LinearLayout.LayoutParams(-1, -2); toolsLp.topMargin = dp(10);
         page.addView(tools, toolsLp);
         speed.setOnClickListener(v -> startActivity(new Intent(this, SpeedTestActivity.class)));
-        time.setOnClickListener(v -> startActivity(new Intent(this, BeijingTimeActivity.class)));
-
-        TextView permissions = label("悬浮窗权限设置   ›", 13, muted); permissions.setGravity(Gravity.CENTER);
-        permissions.setBackground(shape(surfaceAlt, 18)); LinearLayout.LayoutParams permLp = new LinearLayout.LayoutParams(-1, dp(48)); permLp.topMargin = dp(10);
-        page.addView(permissions, permLp); permissions.setOnClickListener(v -> openOverlaySettings());
+        access.setOnClickListener(v -> openOverlaySettings());
 
         TextView device = label(deviceText(), 11, muted); device.setLineSpacing(0, 1.15f);
         LinearLayout.LayoutParams deviceLp = new LinearLayout.LayoutParams(-1, -2); deviceLp.topMargin = dp(18); page.addView(device, deviceLp);

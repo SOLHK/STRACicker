@@ -458,14 +458,7 @@ public final class OverlayService extends Service {
 
         collapseBtn.setOnClickListener(v -> minimizePanel());
 
-        miniIcon.setOnClickListener(v -> {
-            if (runningUi || engine.isRunning()) {
-                stopClicking();
-                main.postDelayed(this::expandPanel, 300L);
-            } else {
-                expandPanel();
-            }
-        });
+        miniIcon.setOnTouchListener(new CompactIconDrag());
 
         closeBtn.setOnClickListener(v -> {
             forceStopEverything(false);
@@ -524,6 +517,15 @@ public final class OverlayService extends Service {
         panelLp.width = Math.min(dp(350), getResources().getDisplayMetrics().widthPixels - dp(24));
         panelLp.height = WindowManager.LayoutParams.WRAP_CONTENT;
         try { wm.updateViewLayout(panel, panelLp); } catch (Throwable ignored) {}
+    }
+
+    private void onCompactIconTap() {
+        if (runningUi || engine.isRunning()) {
+            stopClicking();
+            main.postDelayed(this::expandPanel, 300L);
+        } else {
+            expandPanel();
+        }
     }
 
     private void updateBeijingClock() {
@@ -905,6 +907,54 @@ public final class OverlayService extends Service {
             }
 
             return false;
+        }
+    }
+
+    private final class CompactIconDrag implements View.OnTouchListener {
+        int startX, startY;
+        float downX, downY;
+        boolean moved;
+
+        @Override
+        public boolean onTouch(View view, MotionEvent event) {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    startX = panelLp.x;
+                    startY = panelLp.y;
+                    downX = event.getRawX();
+                    downY = event.getRawY();
+                    moved = false;
+                    view.setPressed(true);
+                    return true;
+                case MotionEvent.ACTION_MOVE: {
+                    float dx = event.getRawX() - downX;
+                    float dy = event.getRawY() - downY;
+                    if (!moved && (Math.abs(dx) > dp(5) || Math.abs(dy) > dp(5))) moved = true;
+                    if (moved) {
+                        Point display = new Point();
+                        wm.getDefaultDisplay().getRealSize(display);
+                        int maxX = Math.max(0, display.x - panelLp.width);
+                        int maxY = Math.max(0, display.y - panelLp.height);
+                        panelLp.x = Math.max(0, Math.min(maxX, startX + Math.round(dx)));
+                        panelLp.y = Math.max(0, Math.min(maxY, startY + Math.round(dy)));
+                        try { wm.updateViewLayout(panel, panelLp); } catch (Throwable ignored) {}
+                    }
+                    return true;
+                }
+                case MotionEvent.ACTION_UP:
+                    view.setPressed(false);
+                    if (moved) {
+                        prefs.edit().putInt("panel_x", panelLp.x).putInt("panel_y", panelLp.y).apply();
+                    } else {
+                        onCompactIconTap();
+                    }
+                    return true;
+                case MotionEvent.ACTION_CANCEL:
+                    view.setPressed(false);
+                    return true;
+                default:
+                    return true;
+            }
         }
     }
 

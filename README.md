@@ -3,7 +3,7 @@
 STRA 连点器，当前针对 OnePlus Ace 5 Pro（PKR110）优化。
 
 ## 当前版本
-v2.1.0
+v2.1.1
 
 ## 功能
 - Material 3 Expressive 风格界面，控制台、速度测试、北京时间与悬浮窗统一视觉

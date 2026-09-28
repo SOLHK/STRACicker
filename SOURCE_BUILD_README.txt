@@ -1,4 +1,4 @@
-STRA AutoClicker Ace 5 Pro v2.0.4 - Source
+STRA AutoClicker Ace 5 Pro v2.0.5 - Source
 
 Included:
 - Java application source
@@ -7,6 +7,8 @@ Included:
 - Native ARM64/uinput C source
 - Beijing time NTP synchronization
 - Click speed test
+- Batched input events and monotonic start-to-start click pacing
+- Nanosecond-resolution speed measurement
 - Floating controller and emergency stop
 
 Signing:

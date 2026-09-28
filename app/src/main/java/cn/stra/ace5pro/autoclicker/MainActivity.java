@@ -152,8 +152,8 @@ public final class MainActivity extends Activity {
         LinearLayout speed = tile("速度测试", "CPS 与点击间隔", "↗");
         LinearLayout time = tile("校时详情", "NTP 与网络延迟", "◷");
         tools.addView(speed, new LinearLayout.LayoutParams(0, dp(108), 1));
-        LinearLayout.LayoutParams timeLp = new LinearLayout.LayoutParams(0, dp(108), 1); timeLp.leftMargin = dp(10);
-        tools.addView(time, timeLp); LinearLayout.LayoutParams toolsLp = new LinearLayout.LayoutParams(-1, -2); toolsLp.topMargin = dp(10);
+        LinearLayout.LayoutParams timeTileLp = new LinearLayout.LayoutParams(0, dp(108), 1); timeTileLp.leftMargin = dp(10);
+        tools.addView(time, timeTileLp); LinearLayout.LayoutParams toolsLp = new LinearLayout.LayoutParams(-1, -2); toolsLp.topMargin = dp(10);
         page.addView(tools, toolsLp);
         speed.setOnClickListener(v -> startActivity(new Intent(this, SpeedTestActivity.class)));
         time.setOnClickListener(v -> startActivity(new Intent(this, BeijingTimeActivity.class)));

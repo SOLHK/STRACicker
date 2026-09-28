@@ -48,6 +48,9 @@ public final class OverlayService extends Service {
 
     private LinearLayout panel;
     private LinearLayout body;
+    private LinearLayout header;
+    private TextView miniIcon;
+    private TextView clockView;
     private WindowManager.LayoutParams panelLp;
     private View pickOverlay;
 
@@ -274,7 +277,7 @@ public final class OverlayService extends Service {
         panel.setPadding(dp(12), dp(11), dp(12), dp(12));
         panel.setBackground(glassBg());
 
-        LinearLayout header = new LinearLayout(this);
+        header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
 
@@ -299,6 +302,7 @@ public final class OverlayService extends Service {
         panel.addView(header);
 
         beijingClock = text("北京时间  --:--:--", 15, Color.rgb(139, 207, 255));
+        clockView = beijingClock;
         beijingClock.setTypeface(null, 1);
         beijingClock.setGravity(Gravity.CENTER_VERTICAL);
         beijingClock.setPadding(dp(4), 0, dp(4), 0);
@@ -411,6 +415,12 @@ public final class OverlayService extends Service {
         bodyLp.setMargins(0, dp(2), 0, 0);
         panel.addView(body, bodyLp);
 
+        miniIcon = text("S", 20, Color.WHITE);
+        miniIcon.setTypeface(null, 1);
+        miniIcon.setBackground(bg(Color.rgb(24, 105, 225), 99));
+        miniIcon.setVisibility(View.GONE);
+        panel.addView(miniIcon, new LinearLayout.LayoutParams(dp(48), dp(48)));
+
         int type = Build.VERSION.SDK_INT >= 26
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE;
@@ -444,11 +454,15 @@ public final class OverlayService extends Service {
 
         titleText.setOnTouchListener(new PanelDrag());
 
-        collapseBtn.setOnClickListener(v -> {
-            boolean collapse = body.getVisibility() == View.VISIBLE;
-            body.setVisibility(collapse ? View.GONE : View.VISIBLE);
-            collapseBtn.setText(collapse ? "□" : "—");
-            try { wm.updateViewLayout(panel, panelLp); } catch (Throwable ignored) {}
+        collapseBtn.setOnClickListener(v -> minimizePanel());
+
+        miniIcon.setOnClickListener(v -> {
+            if (runningUi || engine.isRunning()) {
+                stopClicking();
+                main.postDelayed(this::expandPanel, 300L);
+            } else {
+                expandPanel();
+            }
         });
 
         closeBtn.setOnClickListener(v -> {
@@ -485,6 +499,29 @@ public final class OverlayService extends Service {
         startBtn.setOnClickListener(v -> startClicking());
         stopBtn.setOnClickListener(v -> stopClicking());
         forceBtn.setOnClickListener(v -> forceStopEverything(true));
+    }
+
+    private void minimizePanel() {
+        if (panelInputFocusMode) hidePanelInput();
+        header.setVisibility(View.GONE);
+        clockView.setVisibility(View.GONE);
+        body.setVisibility(View.GONE);
+        miniIcon.setVisibility(View.VISIBLE);
+        panel.setPadding(0, 0, 0, 0);
+        panelLp.width = dp(48);
+        panelLp.height = dp(48);
+        try { wm.updateViewLayout(panel, panelLp); } catch (Throwable ignored) {}
+    }
+
+    private void expandPanel() {
+        miniIcon.setVisibility(View.GONE);
+        panel.setPadding(dp(12), dp(11), dp(12), dp(12));
+        header.setVisibility(View.VISIBLE);
+        clockView.setVisibility(View.VISIBLE);
+        body.setVisibility(View.VISIBLE);
+        panelLp.width = dp(320);
+        panelLp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+        try { wm.updateViewLayout(panel, panelLp); } catch (Throwable ignored) {}
     }
 
     private void updateBeijingClock() {

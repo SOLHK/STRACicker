@@ -1,0 +1,36 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Locate Android SDK
+        run: |
+          SDKROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$SDKROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDKROOT" >> "$GITHUB_ENV"
+          yes | "$SDKROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018" >/dev/null || true
+      - name: Build ARM64 uinput helper
+        run: |
+          mkdir -p app/src/main/res/raw
+          "$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang"             -O3 -fPIE -pie -s             native/stra_touch.c             -o app/src/main/res/raw/stra_touch_arm64
+      - name: Build APK
+        run: gradle :app:assembleDebug --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: STRACicker-debug
+          path: app/build/outputs/apk/debug/app-debug.apk

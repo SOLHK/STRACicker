@@ -39,7 +39,9 @@ final class DiagnosticLog {
     }
 
     static synchronized File export(Context context) throws Exception {
-        File target = new File(context.getCacheDir(), "STRACicker-diagnostic.txt");
+        File directory = new File(context.getCacheDir(), "diagnostics");
+        if (!directory.exists() && !directory.mkdirs()) throw new java.io.IOException("Cannot create export directory");
+        File target = new File(directory, "STRACicker-diagnostic.txt");
         File source = new File(context.getFilesDir(), NAME);
         String header = "STRACicker diagnostic log\n"
                 + "App: " + context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName + "\n"

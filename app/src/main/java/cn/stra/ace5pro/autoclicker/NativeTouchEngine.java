@@ -88,11 +88,11 @@ public final class NativeTouchEngine {
 
             Point size = displaySize();
 
-            long holdUs = 500L;
-            // The value is a complete start-to-start period. Fast mode is 1 ms.
+            long holdUs = 250L;
+            // The value is a complete start-to-start period. Fast mode targets 0.5 ms.
             long periodUs = intervalMs <= 0.0
-                    ? 1_000L
-                    : Math.max(1_000L, Math.min(2_000_000L,
+                    ? 500L
+                    : Math.max(500L, Math.min(2_000_000L,
                             Math.round(intervalMs * 1000.0)));
 
             StringBuilder cmd = new StringBuilder();

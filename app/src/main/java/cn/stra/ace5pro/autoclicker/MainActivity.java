@@ -214,9 +214,17 @@ public final class MainActivity extends Activity {
         emergencyLp.setMargins(0, dp(8), 0, 0);
         root.addView(emergency, emergencyLp);
 
+        LinearLayout volumeStop = actionCard(
+                "设置音量减键紧急停止",
+                "启用后，连点时长按音量减键约 1 秒即可急停");
+        volumeStop.setOnClickListener(v -> openAccessibilitySettings());
+        LinearLayout.LayoutParams volumeStopLp = new LinearLayout.LayoutParams(-1, dp(76));
+        volumeStopLp.setMargins(0, dp(8), 0, 0);
+        root.addView(volumeStop, volumeStopLp);
+
         LinearLayout speed = actionCard(
                 "点击速度测试",
-                "实时 CPS、峰值、5 秒均速、平均点击间隔");
+                "实时 CPS、峰值、1 秒均速、平均点击间隔");
         speed.setOnClickListener(v ->
                 startActivity(new Intent(this, SpeedTestActivity.class)));
 
@@ -303,6 +311,11 @@ public final class MainActivity extends Activity {
         } else {
             Toast.makeText(this, "悬浮窗权限已授权", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private void openAccessibilitySettings() {
+        startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+        Toast.makeText(this, "在无障碍服务中启用「STRA 音量减键紧急停止」", Toast.LENGTH_LONG).show();
     }
 
     private void refresh() {

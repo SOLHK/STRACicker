@@ -21,15 +21,13 @@ public final class SpeedTestActivity extends Activity {
     private final Deque<Long> taps = new ArrayDeque<>();
 
     private TextView cpsNow;
-    private TextView cps5;
+    private TextView cps1;
     private TextView peak;
     private TextView total;
     private TextView interval;
     private TextView testArea;
 
     private long totalCount = 0L;
-    private long firstTap = 0L;
-    private long lastTap = 0L;
     private int peakCps = 0;
 
     private final Runnable updater = new Runnable() {
@@ -124,11 +122,11 @@ public final class SpeedTestActivity extends Activity {
 
         LinearLayout row2 = new LinearLayout(this);
         row2.setOrientation(LinearLayout.HORIZONTAL);
-        cps5 = metric("5 秒均速");
+        cps1 = metric("1 秒均速");
         total = metric("总点击");
         LinearLayout.LayoutParams row2Lp = new LinearLayout.LayoutParams(-1, dp(82));
         row2Lp.setMargins(0, dp(8), 0, 0);
-        row2.addView(cps5, new LinearLayout.LayoutParams(0, dp(82), 1f));
+        row2.addView(cps1, new LinearLayout.LayoutParams(0, dp(82), 1f));
         LinearLayout.LayoutParams m4 = new LinearLayout.LayoutParams(0, dp(82), 1f);
         m4.setMargins(dp(8), 0, 0, 0);
         row2.addView(total, m4);
@@ -175,41 +173,33 @@ public final class SpeedTestActivity extends Activity {
         long now = android.os.SystemClock.elapsedRealtimeNanos();
 
         taps.addLast(now);
-        while (!taps.isEmpty() && now - taps.peekFirst() > 5_000_000_000L) {
+        while (!taps.isEmpty() && now - taps.peekFirst() > 1_000_000_000L) {
             taps.removeFirst();
         }
 
         totalCount++;
-        if (firstTap == 0L) firstTap = now;
-        lastTap = now;
     }
 
     private synchronized void refreshStats() {
         long now = android.os.SystemClock.elapsedRealtimeNanos();
 
-        while (!taps.isEmpty() && now - taps.peekFirst() > 5_000_000_000L) {
+        while (!taps.isEmpty() && now - taps.peekFirst() > 1_000_000_000L) {
             taps.removeFirst();
         }
 
-        int oneSecond = 0;
-        for (Long t : taps) {
-            if (now - t <= 1_000_000_000L) oneSecond++;
-        }
+        int oneSecond = taps.size();
 
         if (oneSecond > peakCps) peakCps = oneSecond;
 
-        long elapsed = firstTap == 0L ? 0L : now - firstTap;
-        double windowSeconds = Math.min(5.0, elapsed / 1_000_000_000.0);
-        double fiveSecondRate = windowSeconds > 0.0
-                ? taps.size() / windowSeconds
-                : 0.0;
-        double avgInterval = totalCount > 1 && lastTap > firstTap
-                ? (lastTap - firstTap) / 1_000_000.0 / (double) (totalCount - 1)
+        Long oldest = taps.peekFirst();
+        Long newest = taps.peekLast();
+        double avgInterval = taps.size() > 1 && newest != null && oldest != null
+                ? (newest - oldest) / 1_000_000.0 / (double) (taps.size() - 1)
                 : 0.0;
 
         cpsNow.setText("实时 CPS\n" + oneSecond);
         peak.setText("峰值 CPS\n" + peakCps);
-        cps5.setText(String.format(Locale.US, "5 秒均速\n%.1f", fiveSecondRate));
+        cps1.setText("1 秒均速\n" + oneSecond + " 次/秒");
         total.setText("总点击\n" + totalCount);
         interval.setText(String.format(Locale.US, "平均间隔\n%.3f ms", avgInterval));
     }
@@ -217,8 +207,6 @@ public final class SpeedTestActivity extends Activity {
     private synchronized void reset() {
         taps.clear();
         totalCount = 0L;
-        firstTap = 0L;
-        lastTap = 0L;
         peakCps = 0;
         refreshStats();
     }

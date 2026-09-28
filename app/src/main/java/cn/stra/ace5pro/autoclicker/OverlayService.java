@@ -1,860 +1,328 @@
-package cn.stra.ace5pro.autoclicker;
-
-import android.app.Notification;
-import android.app.NotificationChannel;
-import android.app.NotificationManager;
-import android.app.PendingIntent;
-import android.app.Service;
-import android.content.Intent;
-import android.content.SharedPreferences;
-import android.graphics.Color;
-import android.graphics.PixelFormat;
-import android.graphics.drawable.GradientDrawable;
-import android.os.Build;
-import android.os.Handler;
-import android.os.IBinder;
-import android.os.Looper;
-import android.view.Gravity;
-import android.view.MotionEvent;
-import android.view.View;
-import android.view.WindowManager;
-import android.widget.EditText;
-import android.widget.FrameLayout;
-import android.widget.LinearLayout;
-import android.widget.TextView;
-import android.widget.Toast;
-
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
-import java.util.Locale;
-import java.util.TimeZone;
-
-public final class OverlayService extends Service {
-    private final Handler main = new Handler(Looper.getMainLooper());
-    private final List<PointView> points = new ArrayList<>();
-    private final SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm:ss", Locale.CHINA);
-
-    private WindowManager wm;
-    private SharedPreferences prefs;
-    private NativeTouchEngine engine;
-
-    private LinearLayout panel;
-    private LinearLayout body;
-    private WindowManager.LayoutParams panelLp;
-    private View pickOverlay;
-
-    private TextView titleText;
-    private TextView beijingClock;
-    private TextView statusText;
-    private TextView pointText;
-    private TextView collapseBtn;
-    private TextView deleteBtn;
-    private TextView startBtn;
-    private TextView stopBtn;
-    private TextView forceBtn;
-
-    private EditText intervalInput;
-    private EditText cyclesInput;
-
-    private boolean deleteMode = false;
-    private boolean runningUi = false;
-    private int markerSizePx;
-
-    private final Runnable clockTicker = new Runnable() {
-        @Override
-        public void run() {
-            updateBeijingClock();
-            main.postDelayed(this, 250L);
-        }
-    };
-
-    @Override
-    public void onCreate() {
-        super.onCreate();
-
-        timeFmt.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
-
-        prefs = getSharedPreferences("stra_ace5pro_clicker", MODE_PRIVATE);
-        wm = (WindowManager) getSystemService(WINDOW_SERVICE);
-        engine = new NativeTouchEngine(this);
-        markerSizePx = dp(28);
-
-        BeijingTimeManager.ensureSync(this);
-
-        startForegroundNow();
-        createPanel();
-        restorePoints();
-        refreshPointCount();
-        probeEngine();
-
-        main.post(clockTicker);
-    }
-
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null && "STOP_ALL".equals(intent.getAction())) {
-            forceStopEverything(false);
-            stopSelf();
-        }
-        return START_STICKY;
-    }
-
-    private void startForegroundNow() {
-        final String id = "stra_ace5pro_clicker";
-
-        if (Build.VERSION.SDK_INT >= 26) {
-            NotificationChannel channel = new NotificationChannel(
-                    id,
-                    "STRA è¿ç‚¹å™¨",
-                    NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription("STRA è¿ç‚¹å™¨è¿è¡Œæ§åˆ¶");
-            getSystemService(NotificationManager.class).createNotificationChannel(channel);
-        }
-
-        Intent emergency = new Intent(this, EmergencyStopReceiver.class)
-                .setAction("STRA_EMERGENCY_STOP");
-
-        PendingIntent emergencyPi = PendingIntent.getBroadcast(
-                this,
-                99,
-                emergency,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-
-        Notification.Builder b = Build.VERSION.SDK_INT >= 26
-                ? new Notification.Builder(this, id)
-                : new Notification.Builder(this);
-
-        b.setContentTitle("STRA è¿ç‚¹å™¨æ­£åœ¨è¿è¡Œ")
-                .setContentText("é€šçŸ¥æ å¯éšæ—¶å¼ºåˆ¶åœæ­¢")
-                .setSmallIcon(android.R.drawable.ic_media_play)
-                .setOngoing(true)
-                .addAction(new Notification.Action.Builder(
-                        android.R.drawable.ic_delete,
-                        "å¼ºåˆ¶åœæ­¢",
-                        emergencyPi).build());
-
-        startForeground(2101, b.build());
-    }
-
-    private int dp(int v) {
-        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
-    }
-
-    private GradientDrawable bg(int color, int radiusDp) {
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(color);
-        d.setCornerRadius(dp(radiusDp));
-        d.setStroke(dp(1), Color.argb(58, 255, 255, 255));
-        return d;
-    }
-
-    private GradientDrawable glassBg() {
-        GradientDrawable d = new GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                new int[]{
-                        Color.argb(247, 17, 23, 34),
-                        Color.argb(244, 23, 31, 46),
-                        Color.argb(247, 13, 17, 25)
-                });
-        d.setCornerRadius(dp(20));
-        d.setStroke(dp(1), Color.argb(72, 255, 255, 255));
-        return d;
-    }
-
-    private TextView text(String value, float sp, int color) {
-        TextView v = new TextView(this);
-        v.setText(value);
-        v.setTextSize(sp);
-        v.setTextColor(color);
-        v.setGravity(Gravity.CENTER);
-        return v;
-    }
-
-    private TextView button(String value) {
-        TextView v = text(value, 13.5f, Color.WHITE);
-        v.setBackground(bg(Color.argb(232, 42, 53, 72), 14));
-        v.setPadding(dp(8), 0, dp(8), 0);
-        return v;
-    }
-
-    private EditText input(String value, String hint, boolean decimal) {
-        EditText e = new EditText(this);
-        e.setText(value);
-        e.setHint(hint);
-        e.setSingleLine(true);
-        e.setTextSize(13.5f);
-        e.setTextColor(Color.WHITE);
-        e.setHintTextColor(Color.rgb(113, 125, 147));
-        e.setGravity(Gravity.CENTER);
-
-        int type = android.text.InputType.TYPE_CLASS_NUMBER;
-        if (decimal) type |= android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL;
-        e.setInputType(type);
-
-        e.setBackground(bg(Color.argb(225, 23, 29, 42), 12));
-        e.setPadding(dp(7), 0, dp(7), 0);
-        return e;
-    }
-
-    private void createPanel() {
-        panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(12), dp(11), dp(12), dp(12));
-        panel.setBackground(glassBg());
-
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-
-        titleText = text("STRA  /  ç‚¹å‡»æ§åˆ¶", 15.5f, Color.WHITE);
-        titleText.setTypeface(null, 1);
-        titleText.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        titleText.setPadding(dp(3), 0, 0, 0);
-
-        collapseBtn = button("â€”");
-        TextView closeBtn = button("Ã—");
-
-        header.addView(titleText, new LinearLayout.LayoutParams(0, dp(42), 1f));
-
-        LinearLayout.LayoutParams h1 = new LinearLayout.LayoutParams(dp(42), dp(42));
-        h1.setMargins(dp(5), 0, 0, 0);
-        header.addView(collapseBtn, h1);
-
-        LinearLayout.LayoutParams h2 = new LinearLayout.LayoutParams(dp(42), dp(42));
-        h2.setMargins(dp(5), 0, 0, 0);
-        header.addView(closeBtn, h2);
-
-        panel.addView(header);
-
-        beijingClock = text("åŒ—äº¬æ—¶é—´  --:--:--", 15, Color.rgb(139, 207, 255));
-        beijingClock.setTypeface(null, 1);
-        beijingClock.setGravity(Gravity.CENTER_VERTICAL);
-        beijingClock.setPadding(dp(4), 0, dp(4), 0);
-        beijingClock.setBackground(bg(Color.argb(115, 34, 92, 160), 12));
-
-        LinearLayout.LayoutParams clockLp = new LinearLayout.LayoutParams(-1, dp(42));
-        clockLp.setMargins(0, dp(5), 0, 0);
-        panel.addView(beijingClock, clockLp);
-
-        body = new LinearLayout(this);
-        body.setOrientation(LinearLayout.VERTICAL);
-
-        statusText = text("çŠ¶æ€  Â·  æ­£åœ¨æ£€æµ‹è§¦æ‘¸å¼•æ“â€¦", 12.5f, Color.rgb(196, 210, 231));
-        statusText.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        statusText.setPadding(dp(4), 0, dp(4), 0);
-        body.addView(statusText, new LinearLayout.LayoutParams(-1, dp(34)));
-
-        pointText = text("0 ä¸ªç‚¹ä½", 12.5f, Color.rgb(115, 208, 255));
-        pointText.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        pointText.setPadding(dp(4), 0, dp(4), 0);
-        body.addView(pointText, new LinearLayout.LayoutParams(-1, dp(28)));
-
-        LinearLayout editRow = new LinearLayout(this);
-        editRow.setOrientation(LinearLayout.HORIZONTAL);
-
-        TextView pickBtn = button("ï¼‹ ç‚¹ä½");
-        deleteBtn = button("åˆ é™¤");
-        TextView clearBtn = button("æ¸…ç©º");
-
-        editRow.addView(pickBtn, new LinearLayout.LayoutParams(0, dp(44), 1f));
-
-        LinearLayout.LayoutParams er2 = new LinearLayout.LayoutParams(0, dp(44), 1f);
-        er2.setMargins(dp(5), 0, 0, 0);
-        editRow.addView(deleteBtn, er2);
-
-        LinearLayout.LayoutParams er3 = new LinearLayout.LayoutParams(0, dp(44), 1f);
-        er3.setMargins(dp(5), 0, 0, 0);
-        editRow.addView(clearBtn, er3);
-
-        body.addView(editRow);
-
-        LinearLayout settings = new LinearLayout(this);
-        settings.setOrientation(LinearLayout.HORIZONTAL);
-
-        intervalInput = input(
-                prefs.getString("interval_ms", "1"),
-                "å‘¨æœŸ ms",
-                true);
-
-        cyclesInput = input(
-                String.valueOf(prefs.getLong("cycles", 0L)),
-                "æ¬¡æ•° 0=âˆ",
-                false);
-
-        settings.addView(intervalInput, new LinearLayout.LayoutParams(0, dp(46), 1f));
-
-        LinearLayout.LayoutParams sr2 = new LinearLayout.LayoutParams(0, dp(46), 1f);
-        sr2.setMargins(dp(5), 0, 0, 0);
-        settings.addView(cyclesInput, sr2);
-
-        LinearLayout.LayoutParams settingsLp = new LinearLayout.LayoutParams(-1, dp(46));
-        settingsLp.setMargins(0, dp(6), 0, 0);
-        body.addView(settings, settingsLp);
-
-        LinearLayout presets = new LinearLayout(this);
-        presets.setOrientation(LinearLayout.HORIZONTAL);
-        String[] presetValues = {"1 ms æé€Ÿ", "5 ms", "10 ms"};
-        for (int i = 0; i < presetValues.length; i++) {
-            final String value = i == 0 ? "1" : (i == 1 ? "5" : "10");
-            TextView preset = button(presetValues[i]);
-            preset.setTextColor(i == 0 ? Color.rgb(139, 222, 255) : Color.WHITE);
-            preset.setOnClickListener(v -> intervalInput.setText(value));
-            LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(0, dp(38), 1f);
-            if (i > 0) pp.setMargins(dp(6), 0, 0, 0);
-            presets.addView(preset, pp);
-        }
-        LinearLayout.LayoutParams presetLp = new LinearLayout.LayoutParams(-1, dp(38));
-        presetLp.setMargins(0, dp(6), 0, 0);
-        body.addView(presets, presetLp);
-
-        LinearLayout runRow = new LinearLayout(this);
-        runRow.setOrientation(LinearLayout.HORIZONTAL);
-
-        startBtn = button("â–¶ å¼€å§‹");
-        stopBtn = button("â–  åœæ­¢");
-
-        startBtn.setBackground(bg(Color.rgb(24, 105, 225), 13));
-        stopBtn.setBackground(bg(Color.rgb(75, 82, 98), 13));
-
-        runRow.addView(startBtn, new LinearLayout.LayoutParams(0, dp(48), 1f));
-
-        LinearLayout.LayoutParams rr2 = new LinearLayout.LayoutParams(0, dp(48), 1f);
-        rr2.setMargins(dp(5), 0, 0, 0);
-        runRow.addView(stopBtn, rr2);
-
-        LinearLayout.LayoutParams runLp = new LinearLayout.LayoutParams(-1, dp(48));
-        runLp.setMargins(0, dp(6), 0, 0);
-        body.addView(runRow, runLp);
-
-        forceBtn = button("å¼ºåˆ¶ç»“æŸ");
-        forceBtn.setTextSize(14.5f);
-        forceBtn.setBackground(bg(Color.rgb(186, 42, 55), 14));
-
-        LinearLayout.LayoutParams forceLp = new LinearLayout.LayoutParams(-1, dp(48));
-        forceLp.setMargins(0, dp(6), 0, 0);
-        body.addView(forceBtn, forceLp);
-
-        LinearLayout.LayoutParams bodyLp = new LinearLayout.LayoutParams(-1, -2);
-        bodyLp.setMargins(0, dp(2), 0, 0);
-        panel.addView(body, bodyLp);
-
-        int type = Build.VERSION.SDK_INT >= 26
-                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                : WindowManager.LayoutParams.TYPE_PHONE;
-
-        panelLp = new WindowManager.LayoutParams(
-                dp(320),
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                type,
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                PixelFormat.TRANSLUCENT);
-
-        panelLp.gravity = Gravity.TOP | Gravity.START;
-        panelLp.x = prefs.getInt("panel_x", dp(10));
-        panelLp.y = prefs.getInt("panel_y", dp(64));
-
-        wm.addView(panel, panelLp);
-
-        titleText.setOnTouchListener(new PanelDrag());
-
-        collapseBtn.setOnClickListener(v -> {
-            boolean collapse = body.getVisibility() == View.VISIBLE;
-            body.setVisibility(collapse ? View.GONE : View.VISIBLE);
-            collapseBtn.setText(collapse ? "â–¡" : "â€”");
-            try { wm.updateViewLayout(panel, panelLp); } catch (Throwable ignored) {}
-        });
-
-        closeBtn.setOnClickListener(v -> {
-            forceStopEverything(false);
-            stopSelf();
-        });
-
-        pickBtn.setOnClickListener(v -> {
-            if (runningUi || engine.isRunning()) {
-                Toast.makeText(this, "è¯·å…ˆåœæ­¢", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            openPickOverlay();
-        });
-
-        deleteBtn.setOnClickListener(v -> {
-            if (runningUi || engine.isRunning()) return;
-
-            deleteMode = !deleteMode;
-            deleteBtn.setText(deleteMode ? "å®Œæˆ" : "åˆ é™¤");
-            deleteBtn.setBackground(deleteMode
-                    ? bg(Color.rgb(143, 55, 66), 13)
-                    : bg(Color.argb(225, 40, 47, 62), 13));
-
-            refreshMarkers();
-            refreshPointCount();
-        });
-
-        clearBtn.setOnClickListener(v -> {
-            if (runningUi || engine.isRunning()) return;
-            clearPoints();
-        });
-
-        startBtn.setOnClickListener(v -> startClicking());
-        stopBtn.setOnClickListener(v -> stopClicking());
-        forceBtn.setOnClickListener(v -> forceStopEverything(true));
-    }
-
-    private void updateBeijingClock() {
-        BeijingTimeManager.ensureSync(this);
-
-        long now = BeijingTimeManager.nowMs(this);
-        String time = timeFmt.format(new Date(now));
-
-        if (BeijingTimeManager.isSynced(this)) {
-            beijingClock.setText("åŒ—äº¬æ—¶é—´  " + time + "   âœ“");
-            beijingClock.setTextColor(Color.rgb(131, 205, 255));
-        } else if (BeijingTimeManager.isSyncing()) {
-            beijingClock.setText("åŒ—äº¬æ—¶é—´  " + time + "   åŒæ­¥ä¸­");
-            beijingClock.setTextColor(Color.rgb(255, 205, 114));
-        } else {
-            beijingClock.setText("åŒ—äº¬æ—¶é—´  " + time + "   æœªæ ¡æ—¶");
-            beijingClock.setTextColor(Color.rgb(255, 174, 119));
-        }
-    }
-
-    private void probeEngine() {
-        new Thread(() -> {
-            boolean ok = TouchDeviceDetector.hasRoot() && engine.probeSupport();
-            main.post(() -> statusText.setText(ok ? "å¼•æ“ï¼šuinput å¯ç”¨ âœ“" : "å¼•æ“ï¼šuinput ä¸å¯ç”¨"));
-        }, "stra-probe").start();
-    }
-
-    private void openPickOverlay() {
-        if (pickOverlay != null) return;
-
-        FrameLayout capture = new FrameLayout(this);
-        capture.setBackgroundColor(Color.argb(20, 0, 0, 0));
-
-        TextView hint = text("ç‚¹å±å¹•æ·»åŠ ä½ç½® Â· ç‚¹è¿™é‡Œå–æ¶ˆ", 12.8f, Color.WHITE);
-        hint.setBackground(bg(Color.argb(242, 18, 23, 33), 16));
-        hint.setPadding(dp(14), dp(10), dp(14), dp(10));
-
-        FrameLayout.LayoutParams hintLp = new FrameLayout.LayoutParams(
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.WRAP_CONTENT);
-        hintLp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-        hintLp.topMargin = dp(64);
-        capture.addView(hint, hintLp);
-
-        int type = Build.VERSION.SDK_INT >= 26
-                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                : WindowManager.LayoutParams.TYPE_PHONE;
-
-        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.MATCH_PARENT,
-                type,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                PixelFormat.TRANSLUCENT);
-
-        lp.gravity = Gravity.TOP | Gravity.START;
-
-        hint.setOnClickListener(v -> removePickOverlay());
-
-        capture.setOnTouchListener((v, e) -> {
-            if (e.getAction() == MotionEvent.ACTION_UP) {
-                int x = Math.round(e.getRawX()) - markerSizePx / 2;
-                int y = Math.round(e.getRawY()) - markerSizePx / 2;
-
-                removePickOverlay();
-                addPoint(x, y, true);
-                return true;
-            }
-            return true;
-        });
-
-        pickOverlay = capture;
-        wm.addView(capture, lp);
-    }
-
-    private void removePickOverlay() {
-        if (pickOverlay == null) return;
-        try { wm.removeView(pickOverlay); } catch (Throwable ignored) {}
-        pickOverlay = null;
-    }
-
-    private void addPoint(int x, int y, boolean persist) {
-        int type = Build.VERSION.SDK_INT >= 26
-                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                : WindowManager.LayoutParams.TYPE_PHONE;
-
-        TextView marker = text(String.valueOf(points.size() + 1), 10.8f, Color.WHITE);
-        marker.setTypeface(null, 1);
-        marker.setBackground(bg(Color.argb(228, 17, 120, 239), 99));
-
-        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                markerSizePx,
-                markerSizePx,
-                type,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                PixelFormat.TRANSLUCENT);
-
-        lp.gravity = Gravity.TOP | Gravity.START;
-        lp.x = Math.max(0, x);
-        lp.y = Math.max(0, y);
-
-        PointView pv = new PointView(marker, lp);
-        points.add(pv);
-
-        marker.setOnTouchListener(new MarkerTouch(pv));
-        wm.addView(marker, lp);
-
-        refreshMarkers();
-        refreshPointCount();
-
-        if (persist) savePoints();
-    }
-
-    private void removePoint(PointView p) {
-        if (p == null || runningUi || engine.isRunning()) return;
-
-        try { wm.removeView(p.view); } catch (Throwable ignored) {}
-        points.remove(p);
-
-        refreshMarkers();
-        refreshPointCount();
-        savePoints();
-    }
-
-    private void clearPoints() {
-        for (PointView p : new ArrayList<>(points)) {
-            try { wm.removeView(p.view); } catch (Throwable ignored) {}
-        }
-
-        points.clear();
-        refreshMarkers();
-        refreshPointCount();
-        savePoints();
-    }
-
-    private void refreshMarkers() {
-        for (int i = 0; i < points.size(); i++) {
-            PointView p = points.get(i);
-
-            p.view.setText(deleteMode ? "Ã—" : String.valueOf(i + 1));
-            p.view.setAlpha(runningUi ? 0.30f : 0.96f);
-            p.view.setBackground(deleteMode
-                    ? bg(Color.argb(235, 192, 54, 66), 99)
-                    : bg(Color.argb(228, 17, 120, 239), 99));
-        }
-    }
-
-    private void refreshPointCount() {
-        if (pointText == null) return;
-
-        if (deleteMode) {
-            pointText.setText(points.size() + " ä¸ªç‚¹ä½ Â· ç‚¹çº¢ç‚¹åˆ é™¤");
-        } else if (runningUi) {
-            pointText.setText(points.size() + " ä¸ªç‚¹ä½ Â· è¿è¡Œä¸­");
-        } else {
-            pointText.setText(points.size() + " ä¸ªç‚¹ä½ Â· å¯æ‹–åŠ¨è°ƒæ•´");
-        }
-    }
-
-    private List<TapPoint> collectPoints() {
-        List<TapPoint> out = new ArrayList<>();
-
-        for (PointView p : points) {
-            out.add(new TapPoint(
-                    p.lp.x + markerSizePx / 2,
-                    p.lp.y + markerSizePx / 2));
-        }
-
-        return out;
-    }
-
-    private double parseDouble(EditText e, double def) {
-        try {
-            String s = e.getText().toString().trim();
-            return s.isEmpty() ? def : Double.parseDouble(s);
-        } catch (Throwable ignored) {
-            return def;
-        }
-    }
-
-    private long parseLong(EditText e, long def) {
-        try {
-            String s = e.getText().toString().trim();
-            return s.isEmpty() ? def : Long.parseLong(s);
-        } catch (Throwable ignored) {
-            return def;
-        }
-    }
-
-    private void startClicking() {
-        if (runningUi || engine.isRunning()) return;
-
-        if (points.isEmpty()) {
-            Toast.makeText(this, "è¯·å…ˆæ·»åŠ ç‚¹ä½", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        final double intervalMs = Math.max(0.0, parseDouble(intervalInput, 1.0));
-        final long cycles = Math.max(0L, parseLong(cyclesInput, 0L));
-
-        prefs.edit()
-                .putString("interval_ms", String.valueOf(intervalMs))
-                .putLong("cycles", cycles)
-                .apply();
-
-        deleteMode = false;
-        deleteBtn.setText("åˆ é™¤");
-        deleteBtn.setBackground(bg(Color.argb(225, 40, 47, 62), 13));
-
-        setRunningUi(true);
-        statusText.setText("å¼•æ“ï¼šå¯åŠ¨ä¸­â€¦");
-
-        final List<TapPoint> target = collectPoints();
-
-        new Thread(() -> {
-            if (!engine.probeSupport()) {
-                main.post(() -> {
-                    setRunningUi(false);
-                    statusText.setText("å¼•æ“ï¼šuinput ä¸å¯ç”¨");
-                    Toast.makeText(this, "uinput ä¸å¯ç”¨ï¼Œæœªå¯åŠ¨", Toast.LENGTH_LONG).show();
-                });
-                return;
-            }
-
-            boolean ok = engine.start(
-                    target,
-                    intervalMs,
-                    cycles,
-                    message -> main.post(() -> onFinished(message)));
-
-            main.post(() -> {
-                if (ok) {
-                    statusText.setText("çŠ¶æ€  Â·  è¿è¡Œä¸­ / ç›®æ ‡å‘¨æœŸ "
-                            + String.format(Locale.US, "%.3f ms",
-                                    intervalMs <= 0.0 ? 1.0 : Math.max(1.0, intervalMs)));
-                } else {
-                    setRunningUi(false);
-                    statusText.setText("å¼•æ“ï¼šå¯åŠ¨å¤±è´¥");
-                }
-            });
-        }, "stra-start").start();
-    }
-
-    private void stopClicking() {
-        statusText.setText("çŠ¶æ€  Â·  æ­£åœ¨åœæ­¢â€¦");
-
-        try { engine.stop(); } catch (Throwable ignored) {}
-
-        main.postDelayed(() -> {
-            NativeTouchEngine.hardStop(this);
-            setRunningUi(false);
-            statusText.setText("çŠ¶æ€  Â·  å·²åœæ­¢");
-        }, 250L);
-    }
-
-    private void forceStopEverything(boolean toast) {
-        try { engine.stop(); } catch (Throwable ignored) {}
-        NativeTouchEngine.hardStop(this);
-
-        setRunningUi(false);
-
-        if (statusText != null) statusText.setText("å¼•æ“ï¼šå·²å¼ºåˆ¶ç»“æŸ");
-        if (toast) Toast.makeText(this, "å·²å¼ºåˆ¶ç»“æŸè¿ç‚¹", Toast.LENGTH_SHORT).show();
-    }
-
-    private void onFinished(String message) {
-        setRunningUi(false);
-        if (statusText != null) statusText.setText("å¼•æ“ï¼š" + message);
-    }
-
-    private void setRunningUi(boolean running) {
-        runningUi = running;
-
-        titleText.setText(running ? "STRA Â· è¿è¡Œä¸­" : "STRA Â· ç¼–è¾‘");
-        startBtn.setText(running ? "è¿è¡Œä¸­" : "â–¶ å¼€å§‹");
-        startBtn.setAlpha(running ? 0.55f : 1f);
-
-        stopBtn.setBackground(bg(
-                running ? Color.rgb(187, 58, 70) : Color.rgb(75, 82, 98),
-                13));
-
-        for (PointView p : points) {
-            if (running) {
-                p.lp.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
-            } else {
-                p.lp.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
-            }
-
-            try { wm.updateViewLayout(p.view, p.lp); } catch (Throwable ignored) {}
-        }
-
-        refreshMarkers();
-        refreshPointCount();
-    }
-
-    private void savePoints() {
-        StringBuilder b = new StringBuilder();
-
-        for (PointView p : points) {
-            if (b.length() > 0) b.append(';');
-            b.append(p.lp.x).append(',').append(p.lp.y);
-        }
-
-        prefs.edit().putString("points", b.toString()).apply();
-    }
-
-    private void restorePoints() {
-        String saved = prefs.getString("points", "");
-        if (saved == null || saved.isEmpty()) return;
-
-        for (String pair : saved.split(";")) {
-            String[] xy = pair.split(",");
-            if (xy.length != 2) continue;
-
-            try {
-                addPoint(
-                        Integer.parseInt(xy[0]),
-                        Integer.parseInt(xy[1]),
-                        false);
-            } catch (Throwable ignored) {}
-        }
-    }
-
-    @Override
-    public void onDestroy() {
-        main.removeCallbacks(clockTicker);
-        forceStopEverything(false);
-        removePickOverlay();
-
-        try { if (panel != null) wm.removeView(panel); } catch (Throwable ignored) {}
-
-        for (PointView p : new ArrayList<>(points)) {
-            try { wm.removeView(p.view); } catch (Throwable ignored) {}
-        }
-
-        points.clear();
-        super.onDestroy();
-    }
-
-    @Override
-    public IBinder onBind(Intent intent) {
-        return null;
-    }
-
-    private final class PanelDrag implements View.OnTouchListener {
-        int startX;
-        int startY;
-        float downX;
-        float downY;
-
-        @Override
-        public boolean onTouch(View v, MotionEvent e) {
-            if (e.getAction() == MotionEvent.ACTION_DOWN) {
-                startX = panelLp.x;
-                startY = panelLp.y;
-                downX = e.getRawX();
-                downY = e.getRawY();
-                return true;
-            }
-
-            if (e.getAction() == MotionEvent.ACTION_MOVE) {
-                panelLp.x = startX + Math.round(e.getRawX() - downX);
-                panelLp.y = startY + Math.round(e.getRawY() - downY);
-
-                try { wm.updateViewLayout(panel, panelLp); } catch (Throwable ignored) {}
-                return true;
-            }
-
-            if (e.getAction() == MotionEvent.ACTION_UP) {
-                prefs.edit()
-                        .putInt("panel_x", panelLp.x)
-                        .putInt("panel_y", panelLp.y)
-                        .apply();
-                return true;
-            }
-
-            return false;
-        }
-    }
-
-    private final class MarkerTouch implements View.OnTouchListener {
-        final PointView point;
-
-        int startX;
-        int startY;
-        float downX;
-        float downY;
-        long downAt;
-        boolean moved;
-
-        MarkerTouch(PointView point) {
-            this.point = point;
-        }
-
-        @Override
-        public boolean onTouch(View v, MotionEvent e) {
-            if (runningUi || engine.isRunning()) return true;
-
-            if (e.getAction() == MotionEvent.ACTION_DOWN) {
-                startX = point.lp.x;
-                startY = point.lp.y;
-                downX = e.getRawX();
-                downY = e.getRawY();
-                downAt = System.currentTimeMillis();
-                moved = false;
-                return true;
-            }
-
-            if (e.getAction() == MotionEvent.ACTION_MOVE) {
-                float dx = e.getRawX() - downX;
-                float dy = e.getRawY() - downY;
-
-                if (Math.abs(dx) > dp(2) || Math.abs(dy) > dp(2)) {
-                    moved = true;
-                }
-
-                if (!deleteMode) {
-                    point.lp.x = startX + Math.round(dx);
-                    point.lp.y = startY + Math.round(dy);
-
-                    try { wm.updateViewLayout(point.view, point.lp); } catch (Throwable ignored) {}
-                }
-
-                return true;
-            }
-
-            if (e.getAction() == MotionEvent.ACTION_UP) {
-                long held = System.currentTimeMillis() - downAt;
-
-                if (deleteMode || (!moved && held >= 500)) {
-                    removePoint(point);
-                } else {
-                    savePoints();
-                }
-
-                return true;
-            }
-
-            return false;
-        }
-    }
-
-    private static final class PointView {
-        final TextView view;
-        final WindowManager.LayoutParams lp;
-
-        PointView(TextView view, WindowManager.LayoutParams lp) {
-            this.view = view;
-            this.lp = lp;
-        }
-    }
-}
+YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éí÷Í|N‹Z–‹­¦ëeŠw¬ÕÁ…­…”¸¹ÍÑÉ„¹…”ÕÁÉ¼¹…ÕÑ½±¥­•Èì()¥µÁ½ÉĞ…¹‘É½¥¹…ÁÀ¹9½Ñ¥™¥…Ñ¥½¸ì)¥µÁ½ÉĞ…¹‘É½¥¹…ÁÀ¹9½Ñ¥™¥…Ñ¥½¹¡…¹¹•°ì)¥µÁ½ÉĞ…¹‘É½¥¹…ÁÀ¹9½Ñ¥™¥…Ñ¥½¹5…¹…•Èì)¥µÁ½ÉĞ…¹‘É½¥¹…ÁÀ¹A•¹‘¥¹%¹Ñ•¹Ğì)¥µÁ½ÉĞ…¹‘É½¥¹…ÁÀ¹M•ÉÙ¥”ì)¥µÁ½ÉĞ…¹‘É½¥¹½¹Ñ•¹Ğ¹%¹Ñ•¹Ğì)¥µÁ½ÉĞ…¹‘É½¥¹½¹Ñ•¹Ğ¹M¡…É•‘AÉ•™•É•¹•Ìì)¥µÁ½ÉĞ…¹‘É½¥¹É…Á¡¥Ì¹½±½Èì)¥µÁ½ÉĞ…¹‘É½¥¹É…Á¡¥Ì¹A¥á•±½Éµ…Ğì)¥µÁ½ÉĞ…¹‘É½¥¹É…Á¡¥Ì¹‘É…İ…‰±”¹É…‘¥•¹ÑÉ…İ…‰±”ì)¥µÁ½ÉĞ…¹‘É½¥¹½Ì¹	Õ¥±ì)¥µÁ½ÉĞ…¹‘É½¥¹½Ì¹!…¹‘±•Èì)¥µÁ½ÉĞ…¹‘É½¥¹½Ì¹%	¥¹‘•Èì)¥µÁ½ÉĞ…¹‘É½¥¹½Ì¹1½½Á•Èì)¥µÁ½ÉĞ…¹‘É½¥¹Ù¥•Ü¹É…Ù¥Ñäì)¥µÁ½ÉĞ…¹‘É½¥¹Ù¥•Ü¹5½Ñ¥½¹Ù•¹Ğì)¥µÁ½ÉĞ…¹‘É½¥¹Ù¥•Ü¹Y¥•Üì)¥µÁ½ÉĞ…¹‘É½¥¹Ù¥•Ü¹]¥¹‘½İ5…¹…•Èì)¥µÁ½ÉĞ…¹‘É½¥¹İ¥‘•Ğ¹‘¥ÑQ•áĞì)¥µÁ½ÉĞ…¹‘É½¥¹İ¥‘•Ğ¹É…µ•1…å½ÕĞì)¥µÁ½ÉĞ…¹‘É½¥¹İ¥‘•Ğ¹1¥¹•…É1…å½ÕĞì)¥µÁ½ÉĞ…¹‘É½¥¹İ¥‘•Ğ¹Q•áÑY¥•Üì)¥µÁ½ÉĞ…¹‘É½¥¹İ¥‘•Ğ¹Q½…ÍĞì()¥µÁ½ÉĞ©…Ù„¹Ñ•áĞ¹M¥µÁ±•…Ñ•½Éµ…Ğì)¥µÁ½ÉĞ©…Ù„¹ÕÑ¥°¹ÉÉ…å1¥ÍĞì)¥µÁ½ÉĞ©…Ù„¹ÕÑ¥°¹…Ñ”ì)¥µÁ½ÉĞ©…Ù„¹ÕÑ¥°¹1¥ÍĞì)¥µÁ½ÉĞ©…Ù„¹ÕÑ¥°¹1½…±”ì)¥µÁ½ÉĞ©…Ù„¹ÕÑ¥°¹Q¥µ•i½¹”ì()ÁÕ‰±¥Œ™¥¹…°±…ÍÌ=Ù•É±…åM•ÉÙ¥”•áÑ•¹‘ÌM•ÉÙ¥”ì(€€€ÁÉ¥Ù…Ñ”™¥¹…°!…¹‘±•Èµ…¥¸€ô¹•Ü!…¹‘±•È¡1½½Á•È¹•Ñ5…¥¹1½½Á•È ¤¤ì(€€€ÁÉ¥Ù…Ñ”™¥¹…°1¥ÍĞñA½¥¹ÑY¥•ÜøÁ½¥¹ÑÌ€ô¹•ÜÉÉ…å1¥ÍĞğø ¤ì(€€€ÁÉ¥Ù…Ñ”™¥¹…°M¥µÁ±•…Ñ•½Éµ…ĞÑ¥µ•µĞ€ô¹•ÜM¥µÁ±•…Ñ•½Éµ…Ğ ‰! éµ´éÍÌˆ°1½…±”¹!%9¤ì((€€€ÁÉ¥Ù…Ñ”]¥¹‘½İ5…¹…•Èİ´ì(€€€ÁÉ¥Ù…Ñ”M¡…É•‘AÉ•™•É•¹•ÌÁÉ•™Ìì(€€€ÁÉ¥Ù…Ñ”9…Ñ¥Ù•Q½Õ¡¹¥¹”•¹¥¹”ì((€€€ÁÉ¥Ù…Ñ”1¥¹•…É1…å½ÕĞÁ…¹•°ì(€€€ÁÉ¥Ù…Ñ”1¥¹•…É1…å½ÕĞ‰½‘äì(€€€ÁÉ¥Ù…Ñ”]¥¹‘½İ5…¹…•È¹1…å½ÕÑA…É…µÌÁ…¹•±1Àì(€€€ÁÉ¥Ù…Ñ”Y¥•ÜÁ¥­=Ù•É±…äì((€€€ÁÉ¥Ù…Ñ”Q•áÑY¥•ÜÑ¥Ñ±•Q•áĞì(€€€ÁÉ¥Ù…Ñ”Q•áÑY¥•Ü‰•¥©¥¹±½¬ì(€€€ÁÉ¥Ù…Ñ”Q•áÑY¥•ÜÍÑ…ÑÕÍQ•áĞì(€€€ÁÉ¥Ù…Ñ”Q•áÑY¥•ÜÁ½¥¹ÑQ•áĞì(€€€ÁÉ¥Ù…Ñ”Q•áÑY¥•Ü½±±…ÁÍ•	Ñ¸ì(€€€ÁÉ¥Ù…Ñ”Q•áÑY¥•Ü‘•±•Ñ•	Ñ¸ì(€€€ÁÉ¥Ù…Ñ”Q•áÑY¥•ÜÍÑ…ÉÑ	Ñ¸ì(€€€ÁÉ¥Ù…Ñ”Q•áÑY¥•ÜÍÑ½Á	Ñ¸ì(€€€ÁÉ¥Ù…Ñ”Q•áÑY¥•Ü™½É•	Ñ¸ì((€€€ÁÉ¥Ù…Ñ”‘¥ÑQ•áĞ¥¹Ñ•ÉÙ…±%¹ÁÕĞì(€€€ÁÉ¥Ù…Ñ”‘¥ÑQ•áĞå±•Í%¹ÁÕĞì((€€€ÁÉ¥Ù…Ñ”‰½½±•…¸‘•±•Ñ•5½‘”€ô™…±Í”ì(€€€ÁÉ¥Ù…Ñ”‰½½±•…¸ÉÕ¹¹¥¹U¤€ô™…±Í”ì(€€€ÁÉ¥Ù…Ñ”¥¹Ğµ…É­•ÉM¥é•Aàì((€€€ÁÉ¥Ù…Ñ”™¥¹…°IÕ¹¹…‰±”±½­Q¥­•È€ô¹•ÜIÕ¹¹…‰±” ¤ì(€€€€€€€=Ù•ÉÉ¥‘”(€€€€€€€ÁÕ‰±¥ŒÙ½¥ÉÕ¸ ¤ì(€€€€€€€€€€€ÕÁ‘…Ñ•	•¥©¥¹±½¬ ¤ì(€€€€€€€€€€€µ…¥¸¹Á½ÍÑ•±…å•¡Ñ¡¥Ì°€ÈÔÁ0¤ì(€€€€€€€ô(€€€ôì((€€€=Ù•ÉÉ¥‘”(€€€ÁÕ‰±¥ŒÙ½¥½¹É•…Ñ” ¤ì(€€€€€€€ÍÕÁ•È¹½¹É•…Ñ” ¤ì((€€€€€€€Ñ¥µ•µĞ¹Í•ÑQ¥µ•i½¹”¡Q¥µ•i½¹”¹•ÑQ¥µ•i½¹” ‰Í¥„½M¡…¹¡…¤ˆ¤¤ì((€€€€€€€ÁÉ•™Ì€ô•ÑM¡…É•‘AÉ•™•É•¹•Ì ‰ÍÑÉ…}…”ÕÁÉ½}±¥­•Èˆ°5=}AI%YQ¤ì(€€€€€€€İ´€ô€¡]¥¹‘½İ5…¹…•È¤•ÑMåÍÑ•µM•ÉÙ¥”¡]%9=]}MIY%¤ì(€€€€€€€•¹¥¹”€ô¹•Ü9…Ñ¥Ù•Q½Õ¡¹¥¹”¡Ñ¡¥Ì¤ì(€€€€€€€µ…É­•ÉM¥é•Aà€ô‘À Èà¤ì((€€€€€€€	•¥©¥¹Q¥µ•5…¹…•È¹•¹ÍÕÉ•Må¹Œ¡Ñ¡¥Ì¤ì((€€€€€€€ÍÑ…ÉÑ½É•É½Õ¹‘9½Ü ¤ì(€€€€€€€É•…Ñ•A…¹•° ¤ì(€€€€€€€É•ÍÑ½É•A½¥¹ÑÌ ¤ì(€€€€€€€É•™É•Í¡A½¥¹Ñ½Õ¹Ğ ¤ì(€€€€€€€ÁÉ½‰•¹¥¹” ¤ì((€€€€€€€µ…¥¸¹Á½ÍĞ¡±½­Q¥­•È¤ì(€€€ô((€€€=Ù•ÉÉ¥‘”(€€€ÁÕ‰±¥Œ¥¹Ğ½¹MÑ…ÉÑ½µµ…¹¡%¹Ñ•¹Ğ¥¹Ñ•¹Ğ°¥¹Ğ™±…Ì°¥¹ĞÍÑ…ÉÑ%¤ì(€€€€€€€¥˜€¡¥¹Ñ•¹Ğ€„ô¹Õ±°€˜˜€‰MQ=A}10ˆ¹•ÅÕ…±Ì¡¥¹Ñ•¹Ğ¹•ÑÑ¥½¸ ¤¤¤ì(€€€€€€€€€€€™½É•MÑ½ÁÙ•ÉåÑ¡¥¹œ¡™…±Í”¤ì(€€€€€€€€€€€ÍÑ½ÁM•±˜ ¤ì(€€€€€€€ô(€€€€€€€É•ÑÕÉ¸MQIQ}MQ%-dì(€€€ô((€€€ÁÉ¥Ù…Ñ”Ù½¥ÍÑ…ÉÑ½É•É½Õ¹‘9½Ü ¤ì(€€€€€€€™¥¹…°MÑÉ¥¹œ¥€ô€‰ÍÑÉ…}…”ÕÁÉ½}±¥­•Èˆì((€€€€€€€¥˜€¡	Õ¥±¹YIM%=8¹M-}%9P€øô€ÈØ¤ì(€€€€€€€€€€€9½Ñ¥™¥…Ñ¥½¹¡…¹¹•°¡…¹¹•°€ô¹•Ü9½Ñ¥™¥…Ñ¥½¹¡…¹¹•° (€€€€€€€€€€€€€€€€€€€¥°(€€€€€€€€€€€€€€€€€€€€‰MQIƒ¢ş{
+ç–f ˆ°(€€€€€€€€€€€€€€€€€€€9½Ñ¥™¥…Ñ¥½¹5…¹…•È¹%5A=IQ9}1=\¤ì(€€€€€€€€€€€¡…¹¹•°¹Í•Ñ•ÍÉ¥ÁÑ¥½¸ ‰MQIƒ¢ş{
+ç–f£¢şC¢†3š:Ÿ–"Øˆ¤ì(€€€€€€€€€€€•ÑMåÍÑ•µM•ÉÙ¥”¡9½Ñ¥™¥…Ñ¥½¹5…¹…•È¹±…ÍÌ¤¹É•…Ñ•9½Ñ¥™¥…Ñ¥½¹¡…¹¹•°¡¡…¹¹•°¤ì(€€€€€€€ô((€€€€€€€%¹Ñ•¹Ğ•µ•É•¹ä€ô¹•Ü%¹Ñ•¹Ğ¡Ñ¡¥Ì°µ•É•¹åMÑ½ÁI••¥Ù•È¹±…ÍÌ¤(€€€€€€€€€€€€€€€€¹Í•ÑÑ¥½¸ ‰MQI}5I9e}MQ=@ˆ¤ì((€€€€€€€A•¹‘¥¹%¹Ñ•¹Ğ•µ•É•¹åA¤€ôA•¹‘¥¹%¹Ñ•¹Ğ¹•Ñ	É½…‘…ÍĞ (€€€€€€€€€€€€€€€Ñ¡¥Ì°(€€€€€€€€€€€€€€€€ää°(€€€€€€€€€€€€€€€•µ•É•¹ä°(€€€€€€€€€€€€€€€A•¹‘¥¹%¹Ñ•¹Ğ¹1}UAQ}UII9PğA•¹‘¥¹%¹Ñ•¹Ğ¹1}%55UQ	1¤ì((€€€€€€€9½Ñ¥™¥…Ñ¥½¸¹	Õ¥±‘•Èˆ€ô	Õ¥±¹YIM%=8¹M-}%9P€øô€ÈØ(€€€€€€€€€€€€€€€€ü¹•Ü9½Ñ¥™¥…Ñ¥½¸¹	Õ¥±‘•È¡Ñ¡¥Ì°¥¤(€€€€€€€€€€€€€€€€è¹•Ü9½Ñ¥™¥…Ñ¥½¸¹	Õ¥±‘•È¡Ñ¡¥Ì¤ì((€€€€€€€ˆ¹Í•Ñ½¹Ñ•¹ÑQ¥Ñ±” ‰MQIƒ¢ş{
+ç–f£š¶–r£¢şC¢†0ˆ¤(€€€€€€€€€€€€€€€€¹Í•Ñ½¹Ñ•¹ÑQ•áĞ ‹¦k~—š‚?–>¿¦j?š^Û–òë–"Û–sš¶ˆˆ¤(€€€€€€€€€€€€€€€€¹Í•ÑMµ…±±%½¸¡…¹‘É½¥¹H¹‘É…İ…‰±”¹¥}µ•‘¥…}Á±…ä¤(€€€€€€€€€€€€€€€€¹Í•Ñ=¹½¥¹œ¡ÑÉÕ”¤(€€€€€€€€€€€€€€€€¹…‘‘Ñ¥½¸¡¹•Ü9½Ñ¥™¥…Ñ¥½¸¹Ñ¥½¸¹	Õ¥±‘•È (€€€€€€€€€€€€€€€€€€€€€€€…¹‘É½¥¹H¹‘É…İ…‰±”¹¥}‘•±•Ñ”°(€€€€€€€€€€€€€€€€€€€€€€€€‹–òë–"Û–sš¶ˆˆ°(€€€€€€€€€€€€€€€€€€€€€€€•µ•É•¹åA¤¤¹‰Õ¥± ¤¤ì((€€€€€€€ÍÑ…ÉÑ½É•É½Õ¹ ÈÄÀÄ°ˆ¹‰Õ¥± ¤¤ì(€€€ô((€€€ÁÉ¥Ù…Ñ”¥¹Ğ‘À¡¥¹ĞØ¤ì(€€€€€€€É•ÑÕÉ¸€¡¥¹Ğ¤€¡Ø€¨•ÑI•Í½ÕÉ•Ì ¤¹•Ñ¥ÍÁ±…å5•ÑÉ¥Ì ¤¹‘•¹Í¥Ñä€¬€À¸Õ˜¤ì(€€€ô((€€€ÁÉ¥Ù…Ñ”É…‘¥•¹ÑÉ…İ…‰±”‰œ¡¥¹Ğ½±½È°¥¹ĞÉ…‘¥ÕÍÀ¤ì(€€€€€€€É…‘¥•¹ÑÉ…İ…‰±”€ô¹•ÜÉ…‘¥•¹ÑÉ…İ…‰±” ¤ì(€€€€€€€¹Í•Ñ½±½È¡½±½È¤ì(€€€€€€€¹Í•Ñ½É¹•ÉI…‘¥ÕÌ¡‘À¡É…‘¥ÕÍÀ¤¤ì(€€€€€€€¹Í•ÑMÑÉ½­”¡‘À Ä¤°½±½È¹…Éˆ Ôà°€ÈÔÔ°€ÈÔÔ°€ÈÔÔ¤¤ì(€€€€€€€É•ÑÕÉ¸ì(€€€ô((€€€ÁÉ¥Ù…Ñ”É…‘¥•¹ÑÉ…İ…‰±”±…ÍÍ	œ ¤ì(€€€€€€€É…‘¥•¹ÑÉ…İ…‰±”€ô¹•ÜÉ…‘¥•¹ÑÉ…İ…‰±” (€€€€€€€€€€€€€€€É…‘¥•¹ÑÉ…İ…‰±”¹=É¥•¹Ñ…Ñ¥½¸¹Q1}	H°(€€€€€€€€€€€€€€€¹•Ü¥¹Ñmuì(€€€€€€€€€€€€€€€€€€€€€€€½±½È¹…Éˆ ÈĞÜ°€ÄÜ°€ÈÌ°€ÌĞ¤°(€€€€€€€€€€€€€€€€€€€€€€€½±½È¹…Éˆ ÈĞĞ°€ÈÌ°€ÌÄ°€ĞØ¤°(€€€€€€€€€€€€€€€€€€€€€€€½±½È¹…Éˆ ÈĞÜ°€ÄÌ°€ÄÜ°€ÈÔ¤(€€€€€€€€€€€€€€€ô¤ì(€€€€€€€¹Í•Ñ½É¹•ÉI…‘¥ÕÌ¡‘À ÈÀ¤¤ì(€€€€€€€¹Í•ÑMÑÉ½­”¡‘À Ä¤°½±½È¹…Éˆ ÜÈ°€ÈÔÔ°€ÈÔÔ°€ÈÔÔ¤¤ì(€€€€€€€É•ÑÕÉ¸ì(€€€ô((€€€ÁÉ¥Ù…Ñ”Q•áÑY¥•ÜÑ•áĞ¡MÑÉ¥¹œÙ…±Õ”°™±½…ĞÍÀ°¥¹Ğ½±½È¤ì(€€€€€€€Q•áÑY¥•ÜØ€ô¹•ÜQ•áÑY¥•Ü¡Ñ¡¥Ì¤ì(€€€€€€€Ø¹Í•ÑQ•áĞ¡Ù…±Õ”¤ì(€€€€€€€Ø¹Í•ÑQ•áÑM¥é”¡ÍÀ¤ì(€€€€€€€Ø¹Í•ÑQ•áÑ½±½È¡½±½È¤ì(€€€€€€€Ø¹Í•ÑÉ…Ù¥Ñä¡É…Ù¥Ñä¹9QH¤ì(€€€€€€€É•ÑÕÉ¸Øì(€€€ô((€€€ÁÉ¥Ù…Ñ”Q•áÑY¥•Ü‰ÕÑÑ½¸¡MÑÉ¥¹œÙ…±Õ”¤ì(€€€€€€€Q•áÑY¥•ÜØ€ôÑ•áĞ¡Ù…±Õ”°€ÄÌ¸Õ˜°½±½È¹]!%Q¤ì(€€€€€€€Ø¹Í•Ñ	…­É½Õ¹¡‰œ¡½±½È¹…Éˆ ÈÌÈ°€ĞÈ°€ÔÌ°€ÜÈ¤°€ÄĞ¤¤ì(€€€€€€€Ø¹Í•ÑA…‘‘¥¹œ¡‘À à¤°€À°‘À à¤°€À¤ì(€€€€€€€É•ÑÕÉ¸Øì(€€€ô((€€€ÁÉ¥Ù…Ñ”‘¥ÑQ•áĞ¥¹ÁÕĞ¡MÑÉ¥¹œÙ…±Õ”°MÑÉ¥¹œ¡¥¹Ğ°‰½½±•…¸‘•¥µ…°¤ì(€€€€€€€‘¥ÑQ•áĞ”€ô¹•Ü‘¥ÑQ•áĞ¡Ñ¡¥Ì¤ì(€€€€€€€”¹Í•ÑQ•áĞ¡Ù…±Õ”¤ì(€€€€€€€”¹Í•Ñ!¥¹Ğ¡¡¥¹Ğ¤ì(€€€€€€€”¹Í•ÑM¥¹±•1¥¹”¡ÑÉÕ”¤ì(€€€€€€€”¹Í•ÑQ•áÑM¥é” ÄÌ¸Õ˜¤ì(€€€€€€€”¹Í•ÑQ•áÑ½±½È¡½±½È¹]!%Q¤ì(€€€€€€€”¹Í•Ñ!¥¹ÑQ•áÑ½±½È¡½±½È¹Éˆ ÄÄÌ°€ÄÈÔ°€ÄĞÜ¤¤ì(€€€€€€€”¹Í•ÑÉ…Ù¥Ñä¡É…Ù¥Ñä¹9QH¤ì((€€€€€€€¥¹ĞÑåÁ”€ô…¹‘É½¥¹Ñ•áĞ¹%¹ÁÕÑQåÁ”¹QeA}1MM}9U5	Hì(€€€€€€€¥˜€¡‘•¥µ…°¤ÑåÁ”ğô…¹‘É½¥¹Ñ•áĞ¹%¹ÁÕÑQåÁ”¹QeA}9U5	I}1}%50ì(€€€€€€€”¹Í•Ñ%¹ÁÕÑQåÁ”¡ÑåÁ”¤ì((€€€€€€€”¹Í•Ñ	…­É½Õ¹¡‰œ¡½±½È¹…Éˆ ÈÈÔ°€ÈÌ°€Èä°€ĞÈ¤°€ÄÈ¤¤ì(€€€€€€€”¹Í•ÑA…‘‘¥¹œ¡‘À Ü¤°€À°‘À Ü¤°€À¤ì(€€€€€€€É•ÑÕÉ¸”ì(€€€ô((€€€ÁÉ¥Ù…Ñ”Ù½¥É•…Ñ•A…¹•° ¤ì(€€€€€€€Á…¹•°€ô¹•Ü1¥¹•…É1…å½ÕĞ¡Ñ¡¥Ì¤ì(€€€€€€€Á…¹•°¹Í•Ñ=É¥•¹Ñ…Ñ¥½¸¡1¥¹•…É1…å½ÕĞ¹YIQ%0¤ì(€€€€€€€Á…¹•°¹Í•ÑA…‘‘¥¹œ¡‘À ÄÈ¤°‘À ÄÄ¤°‘À ÄÈ¤°‘À ÄÈ¤¤ì(€€€€€€€Á…¹•°¹Í•Ñ	…­É½Õ¹¡±…ÍÍ	œ ¤¤ì((€€€€€€€1¥¹•…É1…å½ÕĞ¡•…‘•È€ô¹•Ü1¥¹•…É1…å½ÕĞ¡Ñ¡¥Ì¤ì(€€€€€€€¡•…‘•È¹Í•Ñ=É¥•¹Ñ…Ñ¥½¸¡1¥¹•…É1…å½ÕĞ¹!=I%i=9Q0¤ì(€€€€€€€¡•…‘•È¹Í•ÑÉ…Ù¥Ñä¡É…Ù¥Ñä¹9QI}YIQ%0¤ì((€€€€€€€Ñ¥Ñ±•Q•áĞ€ôÑ•áĞ ‰MQI€€¼€ƒ
+ç–ïš:Ÿ–"Øˆ°€ÄÔ¸Õ˜°½±½È¹]!%Q¤ì(€€€€€€€Ñ¥Ñ±•Q•áĞ¹Í•ÑQåÁ•™…”¡¹Õ±°°€Ä¤ì(€€€€€€€Ñ¥Ñ±•Q•áĞ¹Í•ÑÉ…Ù¥Ñä¡É…Ù¥Ñä¹MQIPğÉ…Ù¥Ñä¹9QI}YIQ%0¤ì(€€€€€€€Ñ¥Ñ±•Q•áĞ¹Í•ÑA…‘‘¥¹œ¡‘À Ì¤°€À°€À°€À¤ì((€€€€€€€½±±…ÁÍ•	Ñ¸€ô‰ÕÑÑ½¸ ‹ŠPˆ¤ì(€€€€€€€Q•áÑY¥•Ü±½Í•	Ñ¸€ô‰ÕÑÑ½¸ ‹\ˆ¤ì((€€€€€€€¡•…‘•È¹…‘‘Y¥•Ü¡Ñ¥Ñ±•Q•áĞ°¹•Ü1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ À°‘À ĞÈ¤°€Å˜¤¤ì((€€€€€€€1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ Ä€ô¹•Ü1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ¡‘À ĞÈ¤°‘À ĞÈ¤¤ì(€€€€€€€ Ä¹Í•Ñ5…É¥¹Ì¡‘À Ô¤°€À°€À°€À¤ì(€€€€€€€¡•…‘•È¹…‘‘Y¥•Ü¡½±±…ÁÍ•	Ñ¸° Ä¤ì((€€€€€€€1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ È€ô¹•Ü1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ¡‘À ĞÈ¤°‘À ĞÈ¤¤ì(€€€€€€€ È¹Í•Ñ5…É¥¹Ì¡‘À Ô¤°€À°€À°€À¤ì(€€€€€€€¡•…‘•È¹…‘‘Y¥•Ü¡±½Í•	Ñ¸° È¤ì((€€€€€€€Á…¹•°¹…‘‘Y¥•Ü¡¡•…‘•È¤ì((€€€€€€€‰•¥©¥¹±½¬€ôÑ•áĞ ‹–2_’ê³š^Û¦^Ğ€€´´è´´è´´ˆ°€ÄÔ°½±½È¹Éˆ ÄÌä°€ÈÀÜ°€ÈÔÔ¤¤ì(€€€€€€€‰•¥©¥¹±½¬¹Í•ÑQåÁ•™…”¡¹Õ±°°€Ä¤ì(€€€€€€€‰•¥©¥¹±½¬¹Í•ÑÉ…Ù¥Ñä¡É…Ù¥Ñä¹9QI}YIQ%0¤ì(€€€€€€€‰•¥©¥¹±½¬¹Í•ÑA…‘‘¥¹œ¡‘À Ğ¤°€À°‘À Ğ¤°€À¤ì(€€€€€€€‰•¥©¥¹±½¬¹Í•Ñ	…­É½Õ¹¡‰œ¡½±½È¹…Éˆ ÄÄÔ°€ÌĞ°€äÈ°€ÄØÀ¤°€ÄÈ¤¤ì((€€€€€€€1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ±½­1À€ô¹•Ü1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ ´Ä°‘À ĞÈ¤¤ì(€€€€€€€±½­1À¹Í•Ñ5…É¥¹Ì À°‘À Ô¤°€À°€À¤ì(€€€€€€€Á…¹•°¹…‘‘Y¥•Ü¡‰•¥©¥¹±½¬°±½­1À¤ì((€€€€€€€‰½‘ä€ô¹•Ü1¥¹•…É1…å½ÕĞ¡Ñ¡¥Ì¤ì(€€€€€€€‰½‘ä¹Í•Ñ=É¥•¹Ñ…Ñ¥½¸¡1¥¹•…É1…å½ÕĞ¹YIQ%0¤ì((€€€€€€€ÍÑ…ÑÕÍQ•áĞ€ôÑ•áĞ ‹*Ûš€ƒ
+Ü€ƒš¶–r£ššÖ/¢›šFã–òWšN;Š˜ˆ°€ÄÈ¸Õ˜°½±½È¹Éˆ ÄäØ°€ÈÄÀ°€ÈÌÄ¤¤ì(€€€€€€€ÍÑ…ÑÕÍQ•áĞ¹Í•ÑÉ…Ù¥Ñä¡É…Ù¥Ñä¹MQIPğÉ…Ù¥Ñä¹9QI}YIQ%0¤ì(€€€€€€€ÍÑ…ÑÕÍQ•áĞ¹Í•ÑA…‘‘¥¹œ¡‘À Ğ¤°€À°‘À Ğ¤°€À¤ì(€€€€€€€‰½‘ä¹…‘‘Y¥•Ü¡ÍÑ…ÑÕÍQ•áĞ°¹•Ü1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ ´Ä°‘À ÌĞ¤¤¤ì((€€€€€€€Á½¥¹ÑQ•áĞ€ôÑ•áĞ ˆÀƒ’â«
+ç’ö4ˆ°€ÄÈ¸Õ˜°½±½È¹Éˆ ÄÄÔ°€ÈÀà°€ÈÔÔ¤¤ì(€€€€€€€Á½¥¹ÑQ•áĞ¹Í•ÑÉ…Ù¥Ñä¡É…Ù¥Ñä¹MQIPğÉ…Ù¥Ñä¹9QI}YIQ%0¤ì(€€€€€€€Á½¥¹ÑQ•áĞ¹Í•ÑA…‘‘¥¹œ¡‘À Ğ¤°€À°‘À Ğ¤°€À¤ì(€€€€€€€‰½‘ä¹…‘‘Y¥•Ü¡Á½¥¹ÑQ•áĞ°¹•Ü1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ ´Ä°‘À Èà¤¤¤ì((€€€€€€€1¥¹•…É1…å½ÕĞ•‘¥ÑI½Ü€ô¹•Ü1¥¹•…É1…å½ÕĞ¡Ñ¡¥Ì¤ì(€€€€€€€•‘¥ÑI½Ü¹Í•Ñ=É¥•¹Ñ…Ñ¥½¸¡1¥¹•…É1…å½ÕĞ¹!=I%i=9Q0¤ì((€€€€€€€Q•áÑY¥•ÜÁ¥­	Ñ¸€ô‰ÕÑÑ½¸ ‹¾ò,ƒ
+ç’ö4ˆ¤ì(€€€€€€€‘•±•Ñ•	Ñ¸€ô‰ÕÑÑ½¸ ‹–"ƒ¦fˆ¤ì(€€€€€€€Q•áÑY¥•Ü±•…É	Ñ¸€ô‰ÕÑÑ½¸ ‹šâ¦èˆ¤ì((€€€€€€€•‘¥ÑI½Ü¹…‘‘Y¥•Ü¡Á¥­	Ñ¸°¹•Ü1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ À°‘À ĞĞ¤°€Å˜¤¤ì((€€€€€€€1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ•ÈÈ€ô¹•Ü1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ À°‘À ĞĞ¤°€Å˜¤ì(€€€€€€€•ÈÈ¹Í•Ñ5…É¥¹Ì¡‘À Ô¤°€À°€À°€À¤ì(€€€€€€€•‘¥ÑI½Ü¹…‘‘Y¥•Ü¡‘•±•Ñ•	Ñ¸°•ÈÈ¤ì((€€€€€€€1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ•ÈÌ€ô¹•Ü1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ À°‘À ĞĞ¤°€Å˜¤ì(€€€€€€€•ÈÌ¹Í•Ñ5…É¥¹Ì¡‘À Ô¤°€À°€À°€À¤ì(€€€€€€€•‘¥ÑI½Ü¹…‘‘Y¥•Ü¡±•…É	Ñ¸°•ÈÌ¤ì((€€€€€€€‰½‘ä¹…‘‘Y¥•Ü¡•‘¥ÑI½Ü¤ì((€€€€€€€1¥¹•…É1…å½ÕĞÍ•ÑÑ¥¹Ì€ô¹•Ü1¥¹•…É1…å½ÕĞ¡Ñ¡¥Ì¤ì(€€€€€€€Í•ÑÑ¥¹Ì¹Í•Ñ=É¥•¹Ñ…Ñ¥½¸¡1¥¹•…É1…å½ÕĞ¹!=I%i=9Q0¤ì((€€€€€€€¥¹Ñ•ÉÙ…±%¹ÁÕĞ€ô¥¹ÁÕĞ (€€€€€€€€€€€€€€€ÁÉ•™Ì¹•ÑMÑÉ¥¹œ ‰¥¹Ñ•ÉÙ…±}µÌˆ°€ˆÀ¸Ôˆ¤°(€€€€€€€€€€€€€€€€‹–F£šr|µÌˆ°(€€€€€€€€€€€€€€€ÑÉÕ”¤ì((€€€€€€€å±•Í%¹ÁÕĞ€ô¥¹ÁÕĞ (€€€€€€€€€€€€€€€MÑÉ¥¹œ¹Ù…±Õ•=˜¡ÁÉ•™Ì¹•Ñ1½¹œ ‰å±•Ìˆ°€Á0¤¤°(€€€€€€€€€€€€€€€€‹š²‡šVÀ€À÷Š"xˆ°(€€€€€€€€€€€€€€€™…±Í”¤ì((€€€€€€€Í•ÑÑ¥¹Ì¹…‘‘Y¥•Ü¡¥¹Ñ•ÉÙ…±%¹ÁÕĞ°¹•Ü1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ À°‘À ĞØ¤°€Å˜¤¤ì((€€€€€€€1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌÍÈÈ€ô¹•Ü1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ À°‘À ĞØ¤°€Å˜¤ì(€€€€€€€ÍÈÈ¹Í•Ñ5…É¥¹Ì¡‘À Ô¤°€À°€À°€À¤ì(€€€€€€€Í•ÑÑ¥¹Ì¹…‘‘Y¥•Ü¡å±•Í%¹ÁÕĞ°ÍÈÈ¤ì((€€€€€€€1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌÍ•ÑÑ¥¹Í1À€ô¹•Ü1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ ´Ä°‘À ĞØ¤¤ì(€€€€€€€Í•ÑÑ¥¹Í1À¹Í•Ñ5…É¥¹Ì À°‘À Ø¤°€À°€À¤ì(€€€€€€€‰½‘ä¹…‘‘Y¥•Ü¡Í•ÑÑ¥¹Ì°Í•ÑÑ¥¹Í1À¤ì((€€€€€€€1¥¹•…É1…å½ÕĞÁÉ•Í•ÑÌ€ô¹•Ü1¥¹•…É1…å½ÕĞ¡Ñ¡¥Ì¤ì(€€€€€€€ÁÉ•Í•ÑÌ¹Í•Ñ=É¥•¹Ñ…Ñ¥½¸¡1¥¹•…É1…å½ÕĞ¹!=I%i=9Q0¤ì(€€€€€€€MÑÉ¥¹mtÁÉ•Í•ÑY…±Õ•Ì€ôìˆÀ¸ÔµÌƒšz¦|ˆ°€ˆÄµÌˆ°€ˆÔµÌˆ°€ˆÄÀµÌ‰ôì(€€€€€€€MÑÉ¥¹mtÁÉ•Í•Ñ%¹Ñ•ÉÙ…±Ì€ôìˆÀ¸Ôˆ°€ˆÄˆ°€ˆÔˆ°€ˆÄÀ‰ôì(€€€€€€€™½È€¡¥¹Ğ¤€ô€Àì¤€ğÁÉ•Í•ÑY…±Õ•Ì¹±•¹Ñ ì¤¬¬¤ì(€€€€€€€€€€€™¥¹…°MÑÉ¥¹œÙ…±Õ”€ôÁÉ•Í•Ñ%¹Ñ•ÉÙ…±Ím¥tì(€€€€€€€€€€€Q•áÑY¥•ÜÁÉ•Í•Ğ€ô‰ÕÑÑ½¸¡ÁÉ•Í•ÑY…±Õ•Ím¥t¤ì(€€€€€€€€€€€ÁÉ•Í•Ğ¹Í•ÑQ•áÑ½±½È¡¤€ôô€À€ü½±½È¹Éˆ ÄÌä°€ÈÈÈ°€ÈÔÔ¤€è½±½È¹]!%Q¤ì(€€€€€€€€€€€ÁÉ•Í•Ğ¹Í•Ñ=¹±¥­1¥ÍÑ•¹•È¡Ø€´ø¥¹Ñ•ÉÙ…±%¹ÁÕĞ¹Í•ÑQ•áĞ¡Ù…±Õ”¤¤ì(€€€€€€€€€€€1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌÁÀ€ô¹•Ü1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ À°‘À Ìà¤°€Å˜¤ì(€€€€€€€€€€€¥˜€¡¤€ø€À¤ÁÀ¹Í•Ñ5…É¥¹Ì¡‘À Ø¤°€À°€À°€À¤ì(€€€€€€€€€€€ÁÉ•Í•ÑÌ¹…‘‘Y¥•Ü¡ÁÉ•Í•Ğ°ÁÀ¤ì(€€€€€€€ô(€€€€€€€1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌÁÉ•Í•Ñ1À€ô¹•Ü1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ ´Ä°‘À Ìà¤¤ì(€€€€€€€ÁÉ•Í•Ñ1À¹Í•Ñ5…É¥¹Ì À°‘À Ø¤°€À°€À¤ì(€€€€€€€‰½‘ä¹…‘‘Y¥•Ü¡ÁÉ•Í•ÑÌ°ÁÉ•Í•Ñ1À¤ì((€€€€€€€1¥¹•…É1…å½ÕĞÉÕ¹I½Ü€ô¹•Ü1¥¹•…É1…å½ÕĞ¡Ñ¡¥Ì¤ì(€€€€€€€ÉÕ¹I½Ü¹Í•Ñ=É¥•¹Ñ…Ñ¥½¸¡1¥¹•…É1…å½ÕĞ¹!=I%i=9Q0¤ì((€€€€€€€ÍÑ…ÉÑ	Ñ¸€ô‰ÕÑÑ½¸ ‹ŠZØƒ–ò–,ˆ¤ì(€€€€€€€ÍÑ½Á	Ñ¸€ô‰ÕÑÑ½¸ ‹ŠZ€ƒ–sš¶ˆˆ¤ì((€€€€€€€ÍÑ…ÉÑ	Ñ¸¹Í•Ñ	…­É½Õ¹¡‰œ¡½±½È¹Éˆ ÈĞ°€ÄÀÔ°€ÈÈÔ¤°€ÄÌ¤¤ì(€€€€€€€ÍÑ½Á	Ñ¸¹Í•Ñ	…­É½Õ¹¡‰œ¡½±½È¹Éˆ ÜÔ°€àÈ°€äà¤°€ÄÌ¤¤ì((€€€€€€€ÉÕ¹I½Ü¹…‘‘Y¥•Ü¡ÍÑ…ÉÑ	Ñ¸°¹•Ü1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ À°‘À Ğà¤°€Å˜¤¤ì((€€€€€€€1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌÉÈÈ€ô¹•Ü1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ À°‘À Ğà¤°€Å˜¤ì(€€€€€€€ÉÈÈ¹Í•Ñ5…É¥¹Ì¡‘À Ô¤°€À°€À°€À¤ì(€€€€€€€ÉÕ¹I½Ü¹…‘‘Y¥•Ü¡ÍÑ½Á	Ñ¸°ÉÈÈ¤ì((€€€€€€€1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌÉÕ¹1À€ô¹•Ü1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ ´Ä°‘À Ğà¤¤ì(€€€€€€€ÉÕ¹1À¹Í•Ñ5…É¥¹Ì À°‘À Ø¤°€À°€À¤ì(€€€€€€€‰½‘ä¹…‘‘Y¥•Ü¡ÉÕ¹I½Ü°ÉÕ¹1À¤ì((€€€€€€€™½É•	Ñ¸€ô‰ÕÑÑ½¸ ‹–òë–"ÛîOšv|ˆ¤ì(€€€€€€€™½É•	Ñ¸¹Í•ÑQ•áÑM¥é” ÄĞ¸Õ˜¤ì(€€€€€€€™½É•	Ñ¸¹Í•Ñ	…­É½Õ¹¡‰œ¡½±½È¹Éˆ ÄàØ°€ĞÈ°€ÔÔ¤°€ÄĞ¤¤ì((€€€€€€€1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ™½É•1À€ô¹•Ü1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ ´Ä°‘À Ğà¤¤ì(€€€€€€€™½É•1À¹Í•Ñ5…É¥¹Ì À°‘À Ø¤°€À°€À¤ì(€€€€€€€‰½‘ä¹…‘‘Y¥•Ü¡™½É•	Ñ¸°™½É•1À¤ì((€€€€€€€1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ‰½‘å1À€ô¹•Ü1¥¹•…É1…å½ÕĞ¹1…å½ÕÑA…É…µÌ ´Ä°€´È¤ì(€€€€€€€‰½‘å1À¹Í•Ñ5…É¥¹Ì À°‘À È¤°€À°€À¤ì(€€€€€€€Á…¹•°¹…‘‘Y¥•Ü¡‰½‘ä°‰½‘å1À¤ì((€€€€€€€¥¹ĞÑåÁ”€ô	Õ¥±¹YIM%=8¹M-}%9P€øô€ÈØ(€€€€€€€€€€€€€€€€ü]¥¹‘½İ5…¹…•È¹1…å½ÕÑA…É…µÌ¹QeA}AA1%Q%=9}=YI1d(€€€€€€€€€€€€€€€€è]¥¹‘½İ5…¹…•È¹1…å½ÕÑA…É…µÌ¹QeA}A!=9ì((€€€€€€€Á…¹•±1À€ô¹•Ü]¥¹‘½İ5…¹…•È¹1…å½ÕÑA…É…µÌ (€€€€€€€€€€€€€€€‘À ÌÈÀ¤°(€€€€€€€€€€€€€€€]¥¹‘½İ5…¹…•È¹1…å½ÕÑA…É…µÌ¹]IA}=9Q9P°(€€€€€€€€€€€€€€€ÑåÁ”°(€€€€€€€€€€€€€€€]¥¹‘½İ5…¹…•È¹1…å½ÕÑA…É…µÌ¹1}9=Q}Q=U!}5=0(€€€€€€€€€€€€€€€€€€€€€€€ğ]¥¹‘½İ5…¹…•È¹1…å½ÕÑA…É…µÌ¹1}1e=UQ}%9}MI8(€€€€€€€€€€€€€€€€€€€€€€€ğ]¥¹‘½İ5…¹…•È¹1…å½ÕÑA…É…µÌ¹1}1e=UQ}9=}1%5%QL°(€€€€€€€€€€€€€€€A¥á•±½Éµ…Ğ¹QI9M1U9P¤ì((€€€€€€€Á…¹•±1À¹É…Ù¥Ñä€ôÉ…Ù¥Ñä¹Q=@ğÉ…Ù¥Ñä¹MQIPì(€€€€€€€Á…¹•±1À¹à€ôÁÉ•™Ì¹•Ñ%¹Ğ ‰Á…¹•±}àˆ°‘À ÄÀ¤¤ì(€€€€€€€Á…¹•±1À¹ä€ôÁÉ•™Ì¹•Ñ%¹Ğ ‰Á…¹•±}äˆ°‘À ØĞ¤¤ì((€€€€€€€İ´¹…‘‘Y¥•Ü¡Á…¹•°°Á…¹•±1À¤ì((€€€€€€€Ñ¥Ñ±•Q•áĞ¹Í•Ñ=¹Q½Õ¡1¥ÍÑ•¹•È¡¹•ÜA…¹•±É…œ ¤¤ì((€€€€€€€½±±…ÁÍ•	Ñ¸¹Í•Ñ=¹±¥­1¥ÍÑ•¹•È¡Ø€´øì(€€€€€€€€€€€‰½½±•…¸½±±…ÁÍ”€ô‰½‘ä¹•ÑY¥Í¥‰¥±¥Ñä ¤€ôôY¥•Ü¹Y%M%	1ì(€€€€€€€€€€€‰½‘ä¹Í•ÑY¥Í¥‰¥±¥Ñä¡½±±…ÁÍ”€üY¥•Ü¹=9€èY¥•Ü¹Y%M%	1¤ì(€€€€€€€€€€€½±±…ÁÍ•	Ñ¸¹Í•ÑQ•áĞ¡½±±…ÁÍ”€ü€‹Š[Í|¶‰ËkºwµçXXÚÙÜ›İ[™ÛÛÜŠÛÛÜ‹˜\™ØŠŒ
+JNÂ‚ˆ^šY]È[H^
+¹à®ylcùney­îùb¨9/cyïkˆ0­È9à®z/æzaã9cå¹­¢‹L‹‹ÛÛÜ‹•ÒUJNÂˆ[œÙ]˜XÚÙÜ›İ[™
+™ÊÛÛÜ‹˜\™ØŠ‹NŒËÌÊKMŠJNÂˆ[œÙ]Y[™Ê
+M
+K
+L
+K
+M
+K
+L
+JNÂ‚ˆœ˜[YS^[İ]“^[İ]\˜[\È[H™]Èœ˜[YS^[İ]“^[İ]\˜[\ÊˆÚ[™İÓX[˜YÙ\‹“^[İ]\˜[\Ë•ÔTĞÓÓ•S•ˆÚ[™İÓX[˜YÙ\‹“^[İ]\˜[\Ë•ÔTĞÓÓ•S•
+NÂˆ[™Ü˜]š]HHÜ˜]š]K•ÔÜ˜]š]KÑS•T—ÒÔ’V“Ó•SÂˆ[ÜX\™Ú[ˆH
+
+NÂˆØ\\™K˜YšY]Ê[[
+NÂ‚ˆ[\HHZ[•‘T”ÒSÓ‹”Ñ×ÒS•H‚ˆÈÚ[™İÓX[˜YÙ\‹“^[İ]\˜[\Ë•TWĞTPĞUSÓ—ÓÕ‘T“VBˆˆÚ[™İÓX[˜YÙ\‹“^[İ]\˜[\Ë•TWÔÓ‘NÂ‚ˆÚ[™İÓX[˜YÙ\‹“^[İ]\˜[\ÈH™]ÈÚ[™İÓX[˜YÙ\‹“^[İ]\˜[\ÊˆÚ[™İÓX[˜YÙ\‹“^[İ]\˜[\Ë“PUÒÔT‘S•ˆÚ[™İÓX[˜YÙ\‹“^[İ]\˜[\Ë“PUÒÔT‘S•ˆ\KˆÚ[™İÓX[˜YÙ\‹“^[İ]\˜[\Ë‘“Q×Ó“ÕÑ“ĞÕTĞP“BˆÚ[™İÓX[˜YÙ\‹“^[İ]\˜[\Ë‘“Q×ÓVSÕUÒS—ÔĞÔ‘QS‚ˆÚ[™İÓX[˜YÙ\‹“^[İ]\˜[\Ë‘“Q×ÓVSÕUÓ“×ÓSRUËˆ^[›Ü›X]•S”ÓPÑS•
+NÂ‚ˆ™Ü˜]š]HHÜ˜]š]K•ÔÜ˜]š]K”ÕT•Â‚ˆ[œÙ]ÛÛXÚÓ\İ[™\ŠˆOˆ™[[İ™TXÚÓİ™\›^J
+JNÂ‚ˆØ\\™KœÙ]Û•İXÚ\İ[™\Š
+‹JHOˆÂˆYˆ
+K™Ù]Xİ[ÛŠ
+HOH[İ[Û‘]™[PÕSÓ—ÕT
+HÂˆ[HX]œ›İ[™
+K™Ù]˜]Ö
+
+JHHX\šÙ\”Ú^™TÈÂˆ[HHX]œ›İ[™
+K™Ù]˜]ÖJ
+JHHX\šÙ\”Ú^™TÈÂ‚ˆ™[[İ™TXÚÓİ™\›^J
+NÂˆYÚ[
+KYJNÂˆ™]\›ˆYNÂˆBˆ™]\›ˆYNÂˆJNÂ‚ˆXÚÓİ™\›^HHØ\\™NÂˆÛK˜YšY]ÊØ\\™K
+NÂˆB‚ˆš]˜]H›ÚY™[[İ™TXÚÓİ™\›^J
+HÂˆYˆ
+XÚÓİ™\›^HOH[
+H™]\›ÂˆHÈÛKœ™[[İ™UšY]ÊXÚÓİ™\›^JNÈHØ]Ú
+›İØX›HYÛ›Ü™Y
+HßBˆXÚÓİ™\›^HH[ÂˆB‚ˆš]˜]H›ÚYYÚ[
+[[K›ÛÛX[ˆ\œÚ\İ
+HÂˆ[\HHZ[•‘T”ÒSÓ‹”Ñ×ÒS•H‚ˆÈÚ[™İÓX[˜YÙ\‹“^[İ]\˜[\Ë•TWĞTPĞUSÓ—ÓÕ‘T“VBˆˆÚ[™İÓX[˜YÙ\‹“^[İ]\˜[\Ë•TWÔÓ‘NÂ‚ˆ^šY]ÈX\šÙ\ˆH^
+İš[™Ë˜[YSÙŠÚ[ËœÚ^™J
+H
+ÈJKL‹ÛÛÜ‹•ÒUJNÂˆX\šÙ\‹œÙ]\Y˜XÙJ[JNÂˆX\šÙ\‹œÙ]˜XÚÙÜ›İ[™
+™ÊÛÛÜ‹˜\™ØŠŒMËLŒŒÎJKNJJNÂ‚ˆÚ[™İÓX[˜YÙ\‹“^[İ]\˜[\ÈH™]ÈÚ[™İÓX[˜YÙ\‹“^[İ]\˜[\ÊˆX\šÙ\”Ú^™TˆX\šÙ\”Ú^™Tˆ\KˆÚ[™İÓX[˜YÙ\‹“^[İ]\˜[\Ë‘“Q×Ó“ÕÑ“ĞÕTĞP“BˆÚ[™İÓX[˜YÙ\‹“^[İ]\˜[\Ë‘“Q×ÓVSÕUÒS—ÔĞÔ‘QS‚ˆÚ[™İÓX[˜YÙ\‹“^[İ]\˜[\Ë‘“Q×ÓVSÕUÓ“×ÓSRUËˆ^[›Ü›X]•S”ÓPÑS•
+NÂ‚ˆ™Ü˜]š]HHÜ˜]š]K•ÔÜ˜]š]K”ÕT•ÂˆHX]›X^
+
+NÂˆHHX]›X^
+JNÂ‚ˆÚ[šY]ÈˆH™]ÈÚ[šY]ÊX\šÙ\‹
+NÂˆÚ[Ë˜Y
+ŠNÂ‚ˆX\šÙ\‹œÙ]Û•İXÚ\İ[™\Š™]ÈX\šÙ\•İXÚ
+ŠJNÂˆÛK˜YšY]ÊX\šÙ\‹
+NÂ‚ˆ™Yœ™\ÚX\šÙ\œÊ
+NÂˆ™Yœ™\ÚÚ[Ûİ[
+
+NÂ‚ˆYˆ
+\œÚ\İ
+HØ]™TÚ[Ê
+NÂˆB‚ˆš]˜]H›ÚY™[[İ™TÚ[
+Ú[šY]È
+HÂˆYˆ
+OH[[›š[™ÕZH[™Ú[™Kš\Ô[›š[™Ê
+JH™]\›Â‚ˆHÈÛKœ™[[İ™UšY]ÊšY]ÊNÈHØ]Ú
+›İØX›HYÛ›Ü™Y
+HßBˆÚ[Ëœ™[[İ™J
+NÂ‚ˆ™Yœ™\ÚX\šÙ\œÊ
+NÂˆ™Yœ™\ÚÚ[Ûİ[
+
+NÂˆØ]™TÚ[Ê
+NÂˆB‚ˆš]˜]H›ÚYÛX\”Ú[Ê
+HÂˆ›Üˆ
+Ú[šY]Èˆ™]È\œ˜^S\İŠÚ[ÊJHÂˆHÈÛKœ™[[İ™UšY]ÊšY]ÊNÈHØ]Ú
+›İØX›HYÛ›Ü™Y
+HßBˆB‚ˆÚ[Ë˜ÛX\Š
+NÂˆ™Yœ™\ÚX\šÙ\œÊ
+NÂˆ™Yœ™\ÚÚ[Ûİ[
+
+NÂˆØ]™TÚ[Ê
+NÂˆB‚ˆš]˜]H›ÚY™Yœ™\ÚX\šÙ\œÊ
+HÂˆ›Üˆ
+[HHÈHÚ[ËœÚ^™J
+NÈJÊÊHÂˆÚ[šY]ÈHÚ[Ë™Ù]
+JNÂ‚ˆšY]ËœÙ]^
+[]S[ÙHÈ°åÈˆˆİš[™Ë˜[YSÙŠH
+ÈJJNÂˆšY]ËœÙ][J[›š[™ÕZHÈŒÌˆˆM™ŠNÂˆšY]ËœÙ]˜XÚÙÜ›İ[™
+[]S[ÙBˆÈ™ÊÛÛÜ‹˜\™ØŠŒÍKNL‹MŠKNJBˆˆ™ÊÛÛÜ‹˜\™ØŠŒMËLŒŒÎJKNJJNÂˆBˆB‚ˆš]˜]H›ÚY™Yœ™\ÚÚ[Ûİ[
+
+HÂˆYˆ
+Ú[^OH[
+H™]\›Â‚ˆYˆ
+[]S[ÙJHÂˆÚ[^œÙ]^
+Ú[ËœÚ^™J
+H
+Èˆ9.*¹à®y/cH0­È9à®yî¨¹à®yb(:fiŠNÂˆH[ÙHYˆ
+[›š[™ÕZJHÂˆÚ[^œÙ]^
+Ú[ËœÚ^™J
+H
+Èˆ9.*¹à®y/cH0­È:/ä:(c9.+HŠNÂˆH[ÙHÂˆÚ[^œÙ]^
+Ú[ËœÚ^™J
+H
+Èˆ9.*¹à®y/cH0­È9cëù¢å¹bª:, ù¥mŠNÂˆBˆB‚ˆš]˜]H\İ\Ú[ˆÛÛXİÚ[Ê
+HÂˆ\İ\Ú[ˆİ]H™]È\œ˜^S\İŠ
+NÂ‚ˆ›Üˆ
+Ú[šY]ÈˆÚ[ÊHÂˆİ]˜Y
+™]È\Ú[
+ˆ›
+ÈX\šÙ\”Ú^™TÈ‹ˆ›H
+ÈX\šÙ\”Ú^™TÈŠJNÂˆB‚ˆ™]\›ˆİ]ÂˆB‚ˆš]˜]HİX›H\œÙQİX›JY]^KİX›HYŠHÂˆHÂˆİš[™ÈÈHK™Ù]^
+
+KÔİš[™Ê
+Kš[J
+NÂˆ™]\›ˆËš\Ñ[\J
+HÈYˆˆİX›Kœ\œÙQİX›JÊNÂˆHØ]Ú
+›İØX›HYÛ›Ü™Y
+HÂˆ™]\›ˆYÂˆBˆB‚ˆš]˜]HÛ™È\œÙSÛ™ÊY]^KÛ™ÈYŠHÂˆHÂˆİš[™ÈÈHK™Ù]^
+
+KÔİš[™Ê
+Kš[J
+NÂˆ™]\›ˆËš\Ñ[\J
+HÈYˆˆÛ™Ëœ\œÙSÛ™ÊÊNÂˆHØ]Ú
+›İØX›HYÛ›Ü™Y
+HÂˆ™]\›ˆYÂˆBˆB‚ˆš]˜]H›ÚYİ\ÛXÚÚ[™Ê
+HÂˆYˆ
+[›š[™ÕZH[™Ú[™Kš\Ô[›š[™Ê
+JH™]\›Â‚ˆYˆ
+Ú[Ëš\Ñ[\J
+JHÂˆØ\İ›XZÙU^
+\Ëº+íùab9­îùb¨9à®y/cH‹Ø\İ“S‘ÕÔÒÔ•
+KœÚİÊ
+NÂˆ™]\›ÂˆB‚ˆš[˜[İX›H[\˜[\ÈHX]›X^
+Œ\œÙQİX›J[\˜[[œ]JJNÂˆš[˜[Û™ÈŞXÛ\ÈHX]›X^
+\œÙSÛ™ÊŞXÛ\Ò[œ]
+JNÂ‚ˆ™YœË™Y]
+
+Bˆœ]İš[™Êš[\˜[Û\È‹İš[™Ë˜[YSÙŠ[\˜[\ÊJBˆœ]Û™Ê˜ŞXÛ\È‹ŞXÛ\ÊBˆ˜\J
+NÂ‚ˆ[]S[ÙHH˜[ÙNÂˆ[]P‹œÙ]^
+¹b(:fiŠNÂˆ[]P‹œÙ]˜XÚÙÜ›İ[™
+™ÊÛÛÜ‹˜\™ØŠŒKËŒŠKLÊJNÂ‚ˆÙ][›š[™ÕZJYJNÂˆİ]\Õ^œÙ]^
+¹o%y¤ã»ï&¹d+ùbª9.+x )ˆŠNÂ‚ˆš[˜[\İ\Ú[ˆ\™Ù]HÛÛXİÚ[Ê
+NÂ‚ˆ™]È™XY
+
+
+HOˆÂˆYˆ
+Y[™Ú[™Kœ›Ø™Tİ\Ü
+
+JHÂˆXZ[‹œÜİ
+
+
+HOˆÂˆÙ][›š[™ÕZJ˜[ÙJNÂˆİ]\Õ^œÙ]^
+¹o%y¤ã»ï&Z[œ]9.#ycëùå*ŠNÂˆØ\İ›XZÙU^
+\ËZ[œ]9.#ycëùå*;ï#9§*¹d+ùbª‹Ø\İ“S‘ÕÓÓ‘ÊKœÚİÊ
+NÂˆJNÂˆ™]\›ÂˆB‚ˆ›ÛÛX[ˆÚÈH[™Ú[™Kœİ\
+ˆ\™Ù]ˆ[\˜[\ËˆŞXÛ\ËˆY\ÜØYÙHOˆXZ[‹œÜİ
+
+
+HOˆÛ‘š[š\ÚY
+Y\ÜØYÙJJJNÂ‚ˆXZ[‹œÜİ
+
+
+HOˆÂˆYˆ
+ÚÊHÂˆİ]\Õ^œÙ]^
+¹â­¹  H0­È:/ä:(c9.+HÈ9æë¹¨!ùdj9§'È‚ˆ
+Èİš[™Ë™›Ü›X]
+ØØ[K•TË‰KŒÙˆ\È‹ˆ[\˜[\ÈHŒÈHˆX]›X^
+K[\˜[\ÊJJNÂˆH[ÙHÂˆÙ][›š[™ÕZJ˜[ÙJNÂˆİ]\Õ^œÙ]^
+¹o%y¤ã»ï&¹d+ùbª9i,z-)HŠNÂˆBˆJNÂˆKœİ˜K\İ\ŠKœİ\
+
+NÂˆB‚ˆš]˜]H›ÚYİÜÛXÚÚ[™Ê
+HÂˆİ]\Õ^œÙ]^
+¹â­¹  H0­È9«hùg*9`g9«h¸ )ˆŠNÂ‚ˆHÈ[™Ú[™KœİÜ
+
+NÈHØ]Ú
+›İØX›HYÛ›Ü™Y
+HßB‚ˆXZ[‹œÜİ[^YY
+
+
+HOˆÂˆ˜]]™UİXÚ[™Ú[™Kš\™İÜ
+\ÊNÂˆÙ][›š[™ÕZJ˜[ÙJNÂˆİ]\Õ^œÙ]^
+¹â­¹  H0­È9mì¹`g9«hˆŠNÂˆKL
+NÂˆB‚ˆš]˜]H›ÚY›Ü˜ÙTİÜ]™\][™Ê›ÛÛX[ˆØ\İ
+HÂˆHÈ[™Ú[™KœİÜ
+
+NÈHØ]Ú
+›İØX›HYÛ›Ü™Y
+HßBˆ˜]]™UİXÚ[™Ú[™Kš\™İÜ
+\ÊNÂ‚ˆÙ][›š[™ÕZJ˜[ÙJNÂ‚ˆYˆ
+İ]\Õ^OH[
+Hİ]\Õ^œÙ]^
+¹o%y¤ã»ï&¹mì¹o.¹b-¹îäù§gÈŠNÂˆYˆ
+Ø\İ
+HØ\İ›XZÙU^
+\Ë¹mì¹o.¹b-¹îäù§gú/ç¹à®H‹Ø\İ“S‘ÕÔÒÔ•
+KœÚİÊ
+NÂˆB‚ˆš]˜]H›ÚYÛ‘š[š\ÚY
+İš[™ÈY\ÜØYÙJHÂˆÙ][›š[™ÕZJ˜[ÙJNÂˆYˆ
+İ]\Õ^OH[
+Hİ]\Õ^œÙ]^
+¹o%y¤ã»ï&ˆˆ
+ÈY\ÜØYÙJNÂˆB‚ˆš]˜]H›ÚYÙ][›š[™ÕZJ›ÛÛX[ˆ[›š[™ÊHÂˆ[›š[™ÕZHH[›š[™ÎÂ‚ˆ]U^œÙ]^
+[›š[™ÈÈ”ÕH0­È:/ä:(c9.+Hˆˆ”ÕH0­È9ï%º/¤HŠNÂˆİ\‹œÙ]^
+[›š[™ÈÈº/ä:(c9.+Hˆˆ¸¥­ˆ9o 9iâÈŠNÂˆİ\‹œÙ][J[›š[™ÈÈMYˆˆYŠNÂ‚ˆİÜ‹œÙ]˜XÚÙÜ›İ[™
+™Êˆ[›š[™ÈÈÛÛÜ‹œ™ØŠNËNÌ
+HˆÛÛÜ‹œ™ØŠÍK‹N
+KˆLÊJNÂ‚ˆ›Üˆ
+Ú[šY]ÈˆÚ[ÊHÂˆYˆ
+[›š[™ÊHÂˆ›™›YÜÈHÚ[™İÓX[˜YÙ\‹“^[İ]\˜[\Ë‘“Q×Ó“ÕÕÕPÒP“NÂˆH[ÙHÂˆ›™›YÜÈ	H•Ú[™İÓX[˜YÙ\‹“^[İ]\˜[\Ë‘“Q×Ó“ÕÕÕPÒP“NÂˆB‚ˆHÈÛK\]UšY]Ó^[İ]
+šY]Ë›
+NÈHØ]Ú
+›İØX›HYÛ›Ü™Y
+HßBˆB‚ˆ™Yœ™\ÚX\šÙ\œÊ
+NÂˆ™Yœ™\ÚÚ[Ûİ[
+
+NÂˆB‚ˆš]˜]H›ÚYØ]™TÚ[Ê
+HÂˆİš[™ĞZ[\ˆˆH™]Èİš[™ĞZ[\Š
+NÂ‚ˆ›Üˆ
+Ú[šY]ÈˆÚ[ÊHÂˆYˆ
+‹›[™İ
+
+Hˆ
+H‹˜\[™
+	ÎÉÊNÂˆ‹˜\[™
+›
+K˜\[™
+	Ë	ÊK˜\[™
+›JNÂˆB‚ˆ™YœË™Y]
+
+Kœ]İš[™ÊœÚ[È‹‹Ôİš[™Ê
+JK˜\J
+NÂˆB‚ˆš]˜]H›ÚY™\İÜ™TÚ[Ê
+HÂˆİš[™ÈØ]™YH™YœË™Ù]İš[™ÊœÚ[È‹ˆŠNÂˆYˆ
+Ø]™YOH[Ø]™Yš\Ñ[\J
+JH™]\›Â‚ˆ›Üˆ
+İš[™ÈZ\ˆˆØ]™YœÜ]
+ÈŠJHÂˆİš[™Ö×HHHZ\‹œÜ]
+‹ŠNÂˆYˆ
+K›[™İOHŠHÛÛ[YNÂ‚ˆHÂˆYÚ[
+ˆ[YÙ\‹œ\œÙR[
+VÌJKˆ[YÙ\‹œ\œÙR[
+VÌWJKˆ˜[ÙJNÂˆHØ]Ú
+›İØX›HYÛ›Ü™Y
+HßBˆBˆB‚ˆİ™\œšYBˆX›XÈ›ÚYÛ‘\İ›ŞJ
+HÂˆXZ[‹œ™[[İ™PØ[˜XÚÜÊÛØÚÕXÚÙ\ŠNÂˆ›Ü˜ÙTİÜ]™\][™Ê˜[ÙJNÂˆ™[[İ™TXÚÓİ™\›^J
+NÂ‚ˆHÈYˆ
+[™[OH[
+HÛKœ™[[İ™UšY]Ê[™[
+NÈHØ]Ú
+›İØX›HYÛ›Ü™Y
+HßB‚ˆ›Üˆ
+Ú[šY]Èˆ™]È\œ˜^S\İŠÚ[ÊJHÂˆHÈÛKœ™[[İ™UšY]ÊšY]ÊNÈHØ]Ú
+›İØX›HYÛ›Ü™Y
+HßBˆB‚ˆÚ[Ë˜ÛX\Š
+NÂˆİ\\‹›Û‘\İ›ŞJ
+NÂˆB‚ˆİ™\œšYBˆX›XÈPš[™\ˆÛš[™
+[[[[
+HÂˆ™]\›ˆ[ÂˆB‚ˆš]˜]Hš[˜[Û\ÜÈ[™[˜YÈ[\[Y[ÈšY]Ë“Û•İXÚ\İ[™\ˆÂˆ[İ\Âˆ[İ\NÂˆ›Ø]İÛ–Âˆ›Ø]İÛ–NÂ‚ˆİ™\œšYBˆX›XÈ›ÛÛX[ˆÛ•İXÚ
+šY]È‹[İ[Û‘]™[JHÂˆYˆ
+K™Ù]Xİ[ÛŠ
+HOH[İ[Û‘]™[PÕSÓ—ÑÕÓŠHÂˆİ\H[™[Âˆİ\HH[™[NÂˆİÛ–HK™Ù]˜]Ö
+
+NÂˆİÛ–HHK™Ù]˜]ÖJ
+NÂˆ™]\›ˆYNÂˆB‚ˆYˆ
+K™Ù]Xİ[ÛŠ
+HOH[İ[Û‘]™[PÕSÓ—ÓSÕ‘JHÂˆ[™[Hİ\
+ÈX]œ›İ[™
+K™Ù]˜]Ö
+
+HHİÛ–
+NÂˆ[™[HHİ\H
+ÈX]œ›İ[™
+K™Ù]˜]ÖJ
+HHİÛ–JNÂ‚ˆHÈÛK\]UšY]Ó^[İ]
+[™[[™[
+NÈHØ]Ú
+›İØX›HYÛ›Ü™Y
+HßBˆ™]\›ˆYNÂˆB‚ˆYˆ
+K™Ù]Xİ[ÛŠ
+HOH[İ[Û‘]™[PÕSÓ—ÕT
+HÂˆ™YœË™Y]
+
+Bˆœ][
+œ[™[Ş‹[™[
+Bˆœ][
+œ[™[ŞH‹[™[JBˆ˜\J
+NÂˆ™]\›ˆYNÂˆB‚ˆ™]\›ˆ˜[ÙNÂˆBˆB‚ˆš]˜]Hš[˜[Û\ÜÈX\šÙ\•İXÚ[\[Y[ÈšY]Ë“Û•İXÚ\İ[™\ˆÂˆš[˜[Ú[šY]ÈÚ[Â‚ˆ[İ\Âˆ[İ\NÂˆ›Ø]İÛ–Âˆ›Ø]İÛ–NÂˆÛ™ÈİÛ]Âˆ›ÛÛX[ˆ[İ™YÂ‚ˆX\šÙ\•İXÚ
+Ú[šY]ÈÚ[
+HÂˆ\ËœÚ[HÚ[ÂˆB‚ˆİ™\œšYBˆX›XÈ›ÛÛX[ˆÛ•İXÚ
+šY]È‹[İ[Û‘]™[JHÂˆYˆ
+[›š[™ÕZH[™Ú[™Kš\Ô[›š[™Ê
+JH™]\›ˆYNÂ‚ˆYˆ
+K™Ù]Xİ[ÛŠ
+HOH[İ[Û‘]™[PÕSÓ—ÑÕÓŠHÂˆİ\HÚ[›Âˆİ\HHÚ[›NÂˆİÛ–HK™Ù]˜]Ö
+
+NÂˆİÛ–HHK™Ù]˜]ÖJ
+NÂˆİÛ]HŞ\İ[K˜İ\œ™[[YSZ[\Ê
+NÂˆ[İ™YH˜[ÙNÂˆ™]\›ˆYNÂˆB‚ˆYˆ
+K™Ù]Xİ[ÛŠ
+HOH[İ[Û‘]™[PÕSÓ—ÓSÕ‘JHÂˆ›Ø]HK™Ù]˜]Ö
+
+HHİÛ–Âˆ›Ø]HHK™Ù]˜]ÖJ
+HHİÛ–NÂ‚ˆYˆ
+X]˜XœÊ
+Hˆ
+ŠHX]˜XœÊJHˆ
+ŠJHÂˆ[İ™YHYNÂˆB‚ˆYˆ
+Y[]S[ÙJHÂˆÚ[›Hİ\
+ÈX]œ›İ[™
+
+NÂˆÚ[›HHİ\H
+ÈX]œ›İ[™
+JNÂ‚ˆHÈÛK\]UšY]Ó^[İ]
+Ú[šY]ËÚ[›
+NÈHØ]Ú
+›İØX›HYÛ›Ü™Y
+HßBˆB‚ˆ™]\›ˆYNÂˆB‚ˆYˆ
+K™Ù]Xİ[ÛŠ
+HOH[İ[Û‘]™[PÕSÓ—ÕT
+HÂˆÛ™È[HŞ\İ[K˜İ\œ™[[YSZ[\Ê
+HHİÛ]Â‚ˆYˆ
+[]S[ÙH
+[[İ™Y	‰ˆ[HL
+JHÂˆ™[[İ™TÚ[
+Ú[
+NÂˆH[ÙHÂˆØ]™TÚ[Ê
+NÂˆB‚ˆ™]\›ˆYNÂˆB‚ˆ™]\›ˆ˜[ÙNÂˆBˆB‚ˆš]˜]Hİ]XÈš[˜[Û\ÜÈÚ[šY]ÈÂˆš[˜[^šY]ÈšY]ÎÂˆš[˜[Ú[™İÓX[˜YÙ\‹“^[İ]\˜[\ÈÂ‚ˆÚ[šY]Ê^šY]ÈšY]ËÚ[™İÓX[˜YÙ\‹“^[İ]\˜[\È
+HÂˆ\ËšY]ÈHšY]ÎÂˆ\Ë›HÂˆBˆBŸB

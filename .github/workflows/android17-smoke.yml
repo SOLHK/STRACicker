@@ -22,13 +22,14 @@ jobs:
         run: |
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKMANAGER" --licenses >/dev/null
-          "$SDKMANAGER" --channel=3 --install "platforms;android-37"
+          "$SDKMANAGER" --channel=3 --install "platforms;android-37.0"
       - name: Run UI smoke test on Android 17
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: CinnamonBun
+          api-level: 37.0
+          system-image-api-level: 37.0
           channel: canary
-          target: google_apis
+          target: google_apis_ps16k
           arch: x86_64
           profile: pixel_7
           ram-size: 4096

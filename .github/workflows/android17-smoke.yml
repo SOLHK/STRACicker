@@ -26,8 +26,8 @@ jobs:
       - name: Run UI smoke test on Android 17
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 37.0
-          system-image-api-level: 37.0
+          api-level: '37.0'
+          system-image-api-level: '37.0'
           channel: canary
           target: google_apis_ps16k
           arch: x86_64

@@ -59,7 +59,10 @@ jobs:
             gradle :app:assembleDebug --stacktrace
             echo "apk_path=app/build/outputs/apk/debug/app-debug.apk" >> "$GITHUB_OUTPUT"
           fi
+          VERSION_NAME=$(sed -n "s/.*versionName '\\([^']*\\)'.*/\\1/p" app/build.gradle)
+          VERSION_LABEL="${VERSION_NAME%-ace5pro}"
+          echo "artifact_name=STRACicker-v${VERSION_LABEL}-apk" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
-          name: STRACicker-v2.21-apk
+          name: ${{ steps.build-apk.outputs.artifact_name }}
           path: ${{ steps.build-apk.outputs.apk_path }}

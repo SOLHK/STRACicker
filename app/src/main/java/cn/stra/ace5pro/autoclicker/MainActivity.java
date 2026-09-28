@@ -36,6 +36,8 @@ public final class MainActivity extends Activity {
     private int bg, surface, surfaceAlt, ink, muted, primary, primaryInk, outline, good;
     private View rootState, overlayState, engineState;
     private boolean waitingForOverlayPermission;
+    private LinearLayout overlayToggle;
+    private TextView overlayToggleTitle, overlayToggleSubtitle, overlayToggleIcon;
     private TextView beijingTime, beijingSource;
 
     private final Runnable ticker = new Runnable() {
@@ -55,6 +57,7 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         refresh();
+        refreshOverlayToggle();
         handler.post(ticker);
         if (waitingForOverlayPermission) {
             waitingForOverlayPermission = false;
@@ -152,9 +155,13 @@ public final class MainActivity extends Activity {
         statusCard.addView(rootState); statusCard.addView(divider()); statusCard.addView(overlayState); statusCard.addView(divider()); statusCard.addView(engineState);
         page.addView(statusCard, new LinearLayout.LayoutParams(-1, -2));
 
-        LinearLayout start = action("开启悬浮控制器", "悬浮控制器开始、停止并显示时间", "↗", primary, primaryInk);
+        overlayToggle = action("开启悬浮窗", "显示时间与连点控制悬浮窗", "↗", primary, primaryInk);
+        LinearLayout startLpView = (LinearLayout) overlayToggle.getChildAt(0);
+        overlayToggleTitle = (TextView) startLpView.getChildAt(0);
+        overlayToggleSubtitle = (TextView) startLpView.getChildAt(1);
+        overlayToggleIcon = (TextView) overlayToggle.getChildAt(1);
         LinearLayout.LayoutParams startLp = new LinearLayout.LayoutParams(-1, dp(76)); startLp.topMargin = dp(18);
-        page.addView(start, startLp); start.setOnClickListener(v -> startOverlay());
+        page.addView(overlayToggle, startLp); overlayToggle.setOnClickListener(v -> toggleOverlay());
 
         LinearLayout tools = new LinearLayout(this);
         LinearLayout speed = tile("速度测试", "测量点击间隔", "↗");
@@ -228,7 +235,13 @@ public final class MainActivity extends Activity {
         return Build.MANUFACTURER + " " + Build.MODEL + "  ·  Android " + Build.VERSION.RELEASE + "\n" + kernel;
     }
 
-    private void startOverlay() {
+    private void toggleOverlay() {
+        if (OverlayService.isServiceActive()) {
+            stopService(new Intent(this, OverlayService.class));
+            setOverlayToggle(false);
+            Toast.makeText(this, "悬浮窗已关闭", Toast.LENGTH_SHORT).show();
+            return;
+        }
         if (!Settings.canDrawOverlays(this)) {
             waitingForOverlayPermission = true;
             openOverlaySettings();
@@ -242,7 +255,26 @@ public final class MainActivity extends Activity {
         BeijingTimeManager.ensureSync(this);
         Intent i = new Intent(this, OverlayService.class);
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i);
-        Toast.makeText(this, "STRA 悬浮控制器已开启", Toast.LENGTH_SHORT).show();
+        setOverlayToggle(true);
+        Toast.makeText(this, "STRA 悬浮窗已开启", Toast.LENGTH_SHORT).show();
+    }
+
+    private void refreshOverlayToggle() {
+        setOverlayToggle(OverlayService.isServiceActive());
+    }
+
+    private void setOverlayToggle(boolean enabled) {
+        if (overlayToggle == null) return;
+        overlayToggleTitle.setText(enabled ? "关闭悬浮窗" : "开启悬浮窗");
+        overlayToggleSubtitle.setText(enabled ? "点击关闭时间与连点控制悬浮窗" : "显示时间与连点控制悬浮窗");
+        overlayToggleIcon.setText(enabled ? "×" : "↗");
+        overlayToggle.setBackground(shape(enabled ? surfaceAlt : primary, 23));
+        int foreground = enabled ? ink : primaryInk;
+        overlayToggleTitle.setTextColor(foreground);
+        overlayToggleSubtitle.setTextColor(enabled ? muted : Color.rgb(236, 244, 255));
+        overlayToggleIcon.setTextColor(foreground);
+        overlayToggleIcon.setBackground(shape(enabled ? surface : Color.rgb(80, 133, 237), 18));
+        overlayToggle.setContentDescription(enabled ? "关闭悬浮窗" : "开启悬浮窗");
     }
 
     private void exportLogs() {

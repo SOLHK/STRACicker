@@ -27,7 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.regex.Pattern;
 
-/** Runs the real app UI on API 37; native root tapping itself needs an Ace 5 Pro. */
+/** Compiles in CI; floating-pill runtime checks can run on a real or API 37 device. */
 @RunWith(AndroidJUnit4.class)
 public final class Android17OverlaySmokeTest {
     private UiDevice device;
@@ -45,56 +45,46 @@ public final class Android17OverlaySmokeTest {
         UiScrollable page = new UiScrollable(new UiSelector().scrollable(true));
         assertTrue(page.scrollTextIntoView("开启悬浮控制器"));
         assertNotNull(device.wait(Until.findObject(By.text("开启悬浮控制器")), 10000));
-        assertNull("duplicate overlay permission tile should be removed",
-                device.findObject(By.text("悬浮权限")));
+        assertNull(device.findObject(By.text("悬浮权限")));
     }
 
-    @Test public void overlayCanCollapseMoveExpandAndExportLogs() throws Exception {
+    @Test public void oneFloatingPillShowsClockCanMoveAndLeavesSettingsInApp() throws Exception {
         UiObject2 settings = device.wait(Until.findObject(By.text("点击设置")), 5000);
-        assertNotNull("point and timing controls must live in app settings", settings);
+        assertNotNull(settings);
         settings.click();
         assertNotNull(device.wait(Until.findObject(By.text("点击周期（毫秒）")), 5000));
         assertNotNull(device.findObject(By.text("0.5 ms")));
         assertNotNull(device.findObject(By.text("点击点位")));
         device.pressBack();
+
         device.findObject(By.text("开启悬浮控制器")).click();
+        UiObject2 pill = device.wait(Until.findObject(By.desc("点按开始，拖动移动位置")), 10000);
+        assertNotNull("only the small time pill should float", pill);
+        assertNotNull("the compact pill must keep showing Beijing time",
+                pill.findObject(By.text(Pattern.compile("\\d{2}:\\d{2}:\\d{2}"))));
+        assertNull(device.findObject(By.text("STRA · 点击控制")));
+        assertNull(device.findObject(By.text("缩小")));
+        assertNull(device.findObject(By.text("开始")));
+        assertNull(device.findObject(By.text("停止")));
 
-        UiObject2 collapse = device.wait(Until.findObject(By.text("收起")), 10000);
-        assertNotNull("expanded overlay must show the collapse control", collapse);
-        assertNotNull(device.findObject(By.text("开始")));
-        assertNotNull(device.findObject(By.text("停止")));
-        assertNull("overlay must not expose point and timing controls", device.findObject(By.text("添加点位")));
-        collapse.click();
-
-        UiObject2 mini = device.wait(
-                Until.findObject(By.desc("轻点展开，拖动移动位置")), 5000);
-        assertNotNull("collapsed overlay must remain visible as a draggable clock pill", mini);
-        assertNotNull("collapsed overlay must keep the Beijing time visible",
-                mini.findObject(By.text(Pattern.compile("\\d{2}:\\d{2}:\\d{2}"))));
-        Point before = mini.getVisibleCenter();
-        mini.drag(new Point(before.x + 160, before.y + 180), 700);
+        Point before = pill.getVisibleCenter();
+        pill.drag(new Point(before.x + 120, before.y + 100), 650);
         device.waitForIdle();
-        mini = device.findObject(By.desc("轻点展开，拖动移动位置"));
-        Point after = mini.getVisibleCenter();
-        assertNotEquals("compact overlay must move when dragged", before, after);
-        mini.click();
-        assertNotNull("tapping the compact icon must expand the overlay",
-                device.wait(Until.findObject(By.text("收起")), 5000));
+        pill = device.findObject(By.desc("点按开始，拖动移动位置"));
+        assertNotNull(pill);
+        assertNotEquals("the pill must remain draggable", before, pill.getVisibleCenter());
 
-        device.findObject(By.text("收起")).click();
         UiScrollable page = new UiScrollable(new UiSelector().scrollable(true));
         page.scrollTextIntoView("导出诊断日志");
         UiObject2 export = device.wait(Until.findObject(By.text("导出诊断日志")), 5000);
-        assertNotNull("main screen must expose log export", export);
+        assertNotNull(export);
         export.click();
-        assertNotNull("log export must open the Android share sheet",
-                device.wait(Until.findObject(By.text("发送诊断日志")), 5000));
+        assertNotNull(device.wait(Until.findObject(By.text("发送诊断日志")), 5000));
 
         File events = new File(context.getFilesDir(), "stra-events.txt");
         assertTrue(events.isFile());
         String log = new String(Files.readAllBytes(events.toPath()), StandardCharsets.UTF_8);
-        assertTrue(log.contains("Overlay collapsed"));
-        assertTrue(log.contains("Overlay expanded"));
+        assertTrue(log.contains("Overlay opened"));
     }
 
     @After public void stopService() {

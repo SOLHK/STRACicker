@@ -14,8 +14,8 @@ android {
         minSdk 26
         targetSdk 35
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-        versionCode 20
-        versionName '2.25-ace5pro'
+        versionCode 21
+        versionName '2.26-ace5pro'
     }
 
     buildTypes {

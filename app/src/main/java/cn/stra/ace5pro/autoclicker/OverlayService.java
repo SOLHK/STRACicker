@@ -45,21 +45,14 @@ public final class OverlayService extends Service {
     private android.content.Context uiContext;
     private boolean destroyed;
     private LinearLayout panel;
-    private LinearLayout header;
     private View miniIcon;
-    private TextView clockView;
     private WindowManager.LayoutParams panelLp;
     private View pickOverlay;
 
-    private TextView titleText;
-    private TextView beijingClock;
-    private TextView statusText;
-    private TextView collapseBtn;
-    private TextView startBtn;
-    private TextView stopBtn;
-
-
     private boolean runningUi = false;
+    private boolean showPointMarkers;
+    private boolean pendingReload;
+    private static volatile boolean serviceActive;
     private int markerSizePx;
 
     private final Runnable clockTicker = new Runnable() {
@@ -83,6 +76,7 @@ public final class OverlayService extends Service {
 
         BeijingTimeManager.ensureSync(this);
 
+        serviceActive = true;
         startForegroundNow();
         createPanel();
         DiagnosticLog.record(this, "Overlay opened");
@@ -96,8 +90,10 @@ public final class OverlayService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null) {
             String action = intent.getAction();
-            if (ACTION_PICK_POINT.equals(action)) openPickOverlay();
+            if (ACTION_PICK_POINT.equals(action)) { setPointMarkersVisible(true); openPickOverlay(); }
             else if (ACTION_RELOAD_POINTS.equals(action)) reloadPoints();
+            else if (ACTION_SHOW_POINTS.equals(action)) setPointMarkersVisible(true);
+            else if (ACTION_HIDE_POINTS.equals(action)) setPointMarkersVisible(false);
         }
         return START_NOT_STICKY;
     }
@@ -105,6 +101,9 @@ public final class OverlayService extends Service {
     static final String ACTION_POINT_ADDED = "cn.stra.ace5pro.autoclicker.POINT_ADDED";
     static final String ACTION_PICK_POINT = "cn.stra.ace5pro.autoclicker.PICK_POINT";
     static final String ACTION_RELOAD_POINTS = "cn.stra.ace5pro.autoclicker.RELOAD_POINTS";
+    static final String ACTION_SHOW_POINTS = "cn.stra.ace5pro.autoclicker.SHOW_POINTS";
+    static final String ACTION_HIDE_POINTS = "cn.stra.ace5pro.autoclicker.HIDE_POINTS";
+    static boolean isServiceActive() { return serviceActive; }
 
     private void startForegroundNow() {
         final String id = "stra_ace5pro_clicker";
@@ -155,70 +154,30 @@ public final class OverlayService extends Service {
         uiContext = new android.view.ContextThemeWrapper(this, R.style.Theme_STRA_Overlay);
         panelUi = new OverlayPanel(uiContext);
         panel = panelUi;
-        header = panelUi.header;
-        titleText = panelUi.title; beijingClock = panelUi.clock; clockView = beijingClock;
-        statusText = panelUi.status;
-        miniIcon = panelUi.mini; collapseBtn = panelUi.collapse;
-        startBtn = panelUi.start; stopBtn = panelUi.stop;
-        TextView closeBtn = panelUi.close;
-
+        miniIcon = panelUi.mini;
         int type = Build.VERSION.SDK_INT >= 26
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE;
-
         panelLp = new WindowManager.LayoutParams(
-                Math.min(dp(350), getResources().getDisplayMetrics().widthPixels - dp(24)),
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                type,
+                dp(OverlayPanel.MINI_WIDTH_DP), dp(OverlayPanel.MINI_HEIGHT_DP), type,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                         | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT);
-
         panelLp.gravity = Gravity.TOP | Gravity.START;
         panelLp.x = prefs.getInt("panel_x", dp(10));
         panelLp.y = prefs.getInt("panel_y", dp(64));
-        panelLp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
-                | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN;
-
         wm.addView(panel, panelLp);
         panel.post(this::clampPanel);
-
-        titleText.setOnTouchListener(new PanelDrag());
-
-        collapseBtn.setOnClickListener(v -> minimizePanel());
-
         miniIcon.setOnTouchListener(new CompactIconDrag());
-
-        closeBtn.setOnClickListener(v -> {
-            requestStop(null);
-            stopSelf();
-        });
-
-        startBtn.setOnClickListener(v -> startClicking());
-        stopBtn.setOnClickListener(v -> stopClicking());
-        panelUi.busy(false, false);
+        panelUi.setRunning(false, false);
     }
 
-    private void minimizePanel() {
-        panelLp.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
-        panelLp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
-        panelUi.setCollapsed(true);
-        panelLp.width = dp(OverlayPanel.MINI_WIDTH_DP); panelLp.height = dp(OverlayPanel.MINI_HEIGHT_DP);
-        clampPanel();
-        DiagnosticLog.record(this, "Overlay collapsed to draggable icon");
-    }
-
-    private void expandPanel() {
-        if (destroyed) return;
-        panelUi.setCollapsed(false);
-        panelLp.width = Math.min(dp(352), getResources().getDisplayMetrics().widthPixels - dp(24));
-        panelLp.height = WindowManager.LayoutParams.WRAP_CONTENT;
-        panel.measure(View.MeasureSpec.makeMeasureSpec(panelLp.width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-        panelLp.height = panel.getMeasuredHeight();
-        clampPanel();
-        DiagnosticLog.record(this, "Overlay expanded");
+    private void toggleClicking() {
+        DiagnosticLog.record(this, "Floating pill tapped; state=" + gate.state());
+        if (gate.state() != RunGate.State.IDLE || engine.isRunning()) requestStop(null);
+        else startClicking();
     }
 
     private void clampPanel() {
@@ -229,21 +188,13 @@ public final class OverlayService extends Service {
         if (!destroyed) try { wm.updateViewLayout(panel, panelLp); } catch (IllegalArgumentException ignored) {}
     }
 
-    private void onCompactIconTap() {
-        DiagnosticLog.record(this, "Compact icon tapped; state=" + gate.state());
-        if (gate.state() != RunGate.State.IDLE || engine.isRunning()) requestStop(this::expandPanel);
-        else expandPanel();
-    }
-
     private void updateBeijingClock() {
         BeijingTimeManager.ensureSync(this);
 
         long now = BeijingTimeManager.nowMs(this);
         String time = timeFmt.format(new Date(now));
 
-        beijingClock.setText(time);
         panelUi.miniClock.setText(time);
-        panelUi.clockStatus.setText("北京时间\n" + (BeijingTimeManager.isSynced(this) ? "已校时" : BeijingTimeManager.isSyncing() ? "校时中" : "系统时间"));
     }
 
     private void probeEngine() {
@@ -251,8 +202,7 @@ public final class OverlayService extends Service {
             boolean ok = engine.probeSupport();
             main.post(() -> {
                 DiagnosticLog.record(this, "Root engine probe available=" + ok);
-                if (!destroyed && gate.state() == RunGate.State.IDLE)
-                    statusText.setText(ok ? "准备就绪 · 在应用内点击设置管理点位" : "请检查 Root 授权");
+                if (!destroyed) DiagnosticLog.record(this, ok ? "Click engine ready" : "Root click engine unavailable");
             });
         });
     }
@@ -340,6 +290,7 @@ public final class OverlayService extends Service {
         points.add(pv);
 
         marker.setOnTouchListener(new MarkerTouch(pv));
+        marker.setVisibility(showPointMarkers ? View.VISIBLE : View.GONE);
         wm.addView(marker, lp);
 
         refreshMarkers();
@@ -355,6 +306,7 @@ public final class OverlayService extends Service {
 
         refreshMarkers();
         savePoints();
+        sendBroadcast(new Intent(ACTION_POINT_ADDED).setPackage(getPackageName()));
     }
 
     private void refreshMarkers() {
@@ -390,7 +342,7 @@ public final class OverlayService extends Service {
             cycles = Math.max(0L, prefs.getLong("cycles", 0L));
             if (!Double.isFinite(intervalMs) || intervalMs > 2000) throw new IllegalArgumentException();
         } catch (RuntimeException e) {
-            statusText.setText("请先在应用内点击设置中检查参数"); return;
+            Toast.makeText(this, "请先在应用内点击设置中检查参数", Toast.LENGTH_SHORT).show(); return;
         }
         if (!movePanelAwayFromTargets()) {
             Toast.makeText(this, "悬浮窗与点位重叠，请移动点位后再开始", Toast.LENGTH_LONG).show();
@@ -402,13 +354,14 @@ public final class OverlayService extends Service {
                 + " intervalMs=" + intervalMs + " cycles=" + cycles);
 
         final List<TapPoint> target=collectPoints();
-        setRunningUi(true); statusText.setText("正在启动…");
+        setRunningUi(true);
         NativeTouchEngine.CONTROL.execute(() -> {
             if (!gate.current(token)) return;
             boolean ok=engine.start(target,intervalMs,cycles,message -> main.post(() -> {
                 if (gate.finish(token) && !destroyed) {
                     DiagnosticLog.record(this, "Task finished: " + message);
-                    setRunningUi(false); statusText.setText(message);
+                    setRunningUi(false);
+                    if (!"已停止".equals(message)) Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
                 }
             }));
             if (!gate.current(token)) { engine.stopBlocking(); return; }
@@ -416,29 +369,28 @@ public final class OverlayService extends Service {
                 if (destroyed) return;
                 if (ok && gate.started(token)) {
                     DiagnosticLog.record(this, "Task running");
-                    statusText.setText("运行中 · " + intervalMs + " ms / 次");
+                    DiagnosticLog.record(this, "Task running at " + intervalMs + " ms per tap");
                 } else if (!ok && gate.finish(token)) {
                     DiagnosticLog.record(this, "Task failed to start");
-                    setRunningUi(false); statusText.setText("启动失败，请检查 Root 权限");
+                    setRunningUi(false); Toast.makeText(this, "启动失败，请检查 Root 权限", Toast.LENGTH_LONG).show();
                 }
             });
         });
     }
-
-    private void stopClicking() { requestStop(null); }
 
     private void requestStop(Runnable afterStop) {
         final long token=gate.stop();
         if (token < 0) return;
         DiagnosticLog.record(this, "Stop requested; state=" + gate.state());
         NativeTouchEngine.signalStopFile(this);
-        setRunningUi(true); statusText.setText("正在停止…");
+        setRunningUi(true);
         NativeTouchEngine.CONTROL.execute(() -> {
             engine.stopBlocking();
             main.post(() -> {
                 if (!destroyed && gate.stopped(token)) {
                     DiagnosticLog.record(this, "Task stopped");
-                    setRunningUi(false); statusText.setText("已停止");
+                    setRunningUi(false);
+                    if (pendingReload) { pendingReload = false; reloadPoints(); }
                     if (afterStop != null) afterStop.run();
                 }
             });
@@ -447,7 +399,7 @@ public final class OverlayService extends Service {
 
     private void setRunningUi(boolean active) {
         runningUi=active;
-        panelUi.busy(active,gate.state()==RunGate.State.STOPPING);
+        panelUi.setRunning(active, gate.state() == RunGate.State.STOPPING);
         for (PointView p:points) {
             if (active) p.lp.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
             else p.lp.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
@@ -457,20 +409,25 @@ public final class OverlayService extends Service {
     }
 
 
+
+    private void setPointMarkersVisible(boolean visible) {
+        showPointMarkers = visible;
+        for (PointView point : points) point.view.setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
     private void reloadPoints() {
-        if (runningUi || engine.isRunning()) return;
+        if (runningUi || engine.isRunning()) { pendingReload = true; return; }
         for (PointView p : new ArrayList<>(points)) try { wm.removeView(p.view); } catch (Throwable ignored) {}
         points.clear();
         restorePoints();
     }
 
-    /** Keep every configured touch target outside the expanded controller's hit area. */
+    /** Keep the pill outside configured touch targets before starting rapid input. */
     private boolean movePanelAwayFromTargets() {
         if (points.isEmpty()) return true;
-        expandPanel();
         Point display = new Point(); wm.getDefaultDisplay().getRealSize(display);
-        int width = panelLp.width;
-        int height = Math.max(panel.getMeasuredHeight(), dp(160));
+        int width = dp(OverlayPanel.MINI_WIDTH_DP);
+        int height = dp(OverlayPanel.MINI_HEIGHT_DP);
         int edge = dp(24);
         int[] xs = {edge, Math.max(edge, (display.x-width)/2), Math.max(edge, display.x-width-edge)};
         int[] ys = {dp(32), Math.max(dp(32), (display.y-height)/2), Math.max(dp(32), display.y-height-dp(32))};
@@ -483,7 +440,7 @@ public final class OverlayService extends Service {
                 if (candidate.contains(px, py)) { collision = true; break; }
             }
             if (!collision) {
-                panelLp.x=x; panelLp.y=y; panelLp.height=WindowManager.LayoutParams.WRAP_CONTENT;
+                panelLp.x=x; panelLp.y=y;
                 clampPanel(); prefs.edit().putInt("panel_x",x).putInt("panel_y",y).apply(); return true;
             }
         }
@@ -522,6 +479,7 @@ public final class OverlayService extends Service {
     public void onDestroy() {
         DiagnosticLog.record(this, "Overlay closed; state=" + gate.state());
         destroyed = true;
+        serviceActive = false;
         gate.close();
         NativeTouchEngine.signalStopFile(this);
         main.removeCallbacksAndMessages(null);
@@ -541,42 +499,6 @@ public final class OverlayService extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         return null;
-    }
-
-    private final class PanelDrag implements View.OnTouchListener {
-        int startX;
-        int startY;
-        float downX;
-        float downY;
-
-        @Override
-        public boolean onTouch(View v, MotionEvent e) {
-            if (e.getAction() == MotionEvent.ACTION_DOWN) {
-                startX = panelLp.x;
-                startY = panelLp.y;
-                downX = e.getRawX();
-                downY = e.getRawY();
-                return true;
-            }
-
-            if (e.getAction() == MotionEvent.ACTION_MOVE) {
-                panelLp.x = startX + Math.round(e.getRawX() - downX);
-                panelLp.y = startY + Math.round(e.getRawY() - downY);
-
-                clampPanel();
-                return true;
-            }
-
-            if (e.getAction() == MotionEvent.ACTION_UP) {
-                prefs.edit()
-                        .putInt("panel_x", panelLp.x)
-                        .putInt("panel_y", panelLp.y)
-                        .apply();
-                return true;
-            }
-
-            return false;
-        }
     }
 
     private final class CompactIconDrag implements View.OnTouchListener {
@@ -615,7 +537,7 @@ public final class OverlayService extends Service {
                     if (moved) {
                         prefs.edit().putInt("panel_x", panelLp.x).putInt("panel_y", panelLp.y).apply();
                     } else {
-                        onCompactIconTap();
+                        toggleClicking();
                     }
                     return true;
                 case MotionEvent.ACTION_CANCEL:

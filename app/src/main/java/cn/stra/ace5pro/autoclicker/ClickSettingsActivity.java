@@ -39,6 +39,7 @@ public final class ClickSettingsActivity extends Activity {
     }
     @Override protected void onResume() {
         super.onResume(); refreshPoints();
+        if (Settings.canDrawOverlays(this) && OverlayService.isServiceActive()) sendPointVisibility(true);
         IntentFilter filter = new IntentFilter(OverlayService.ACTION_POINT_ADDED);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(pointReceiver, filter, RECEIVER_NOT_EXPORTED);
         else registerReceiver(pointReceiver, filter);
@@ -75,6 +76,7 @@ public final class ClickSettingsActivity extends Activity {
     private void refreshPoints(){if(pointsList==null)return;pointsList.removeAllViews();String saved=prefs.getString("points","");if(saved==null||saved.isEmpty()){pointsList.addView(text("尚未添加点位",13,muted));return;}String[] pairs=saved.split(";");for(int index=0;index<pairs.length;index++){final int at=index;LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(12),dp(4),dp(6),dp(4));row.setBackground(shape(surface,16));TextView pos=text((index+1)+"  ·  "+pairs[index].replace(","," , "),14,ink);row.addView(pos,new LinearLayout.LayoutParams(0,dp(46),1));TextView del=text("删除",13,Color.rgb(179,52,67));del.setGravity(Gravity.CENTER);row.addView(del,new LinearLayout.LayoutParams(dp(52),dp(42)));del.setOnClickListener(v->removePoint(at));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(6);pointsList.addView(row,lp);}}
     private void removePoint(int index){String saved=prefs.getString("points","");java.util.ArrayList<String> list=new java.util.ArrayList<>();if(saved!=null&&!saved.isEmpty())java.util.Collections.addAll(list,saved.split(";"));if(index>=0&&index<list.size())list.remove(index);prefs.edit().putString("points",android.text.TextUtils.join(";",list)).apply();sendReload();refreshPoints();}
     private void sendReload(){Intent i=new Intent(this,OverlayService.class);i.setAction(OverlayService.ACTION_RELOAD_POINTS);if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);}
-    @Override protected void onPause(){if(receiverRegistered){unregisterReceiver(pointReceiver);receiverRegistered=false;}if(interval!=null&&cycles!=null)saveSilently();super.onPause();}
+    private void sendPointVisibility(boolean visible){Intent i=new Intent(this,OverlayService.class);i.setAction(visible?OverlayService.ACTION_SHOW_POINTS:OverlayService.ACTION_HIDE_POINTS);startService(i);}
+    @Override protected void onPause(){if(receiverRegistered){unregisterReceiver(pointReceiver);receiverRegistered=false;}if(interval!=null&&cycles!=null)saveSilently();if(OverlayService.isServiceActive())sendPointVisibility(false);super.onPause();}
     private void saveSilently(){try{double ms=Double.parseDouble(interval.getText().toString());long n=Long.parseLong(cycles.getText().toString());if(ms>=0.5&&ms<=2000&&n>=0)prefs.edit().putString("interval_ms",String.valueOf(ms)).putLong("cycles",n).apply();}catch(Exception ignored){}}
 }

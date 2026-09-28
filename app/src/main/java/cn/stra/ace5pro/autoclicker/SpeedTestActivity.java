@@ -172,37 +172,39 @@ public final class SpeedTestActivity extends Activity {
     }
 
     private synchronized void registerTap() {
-        long now = android.os.SystemClock.elapsedRealtime();
+        long now = android.os.SystemClock.elapsedRealtimeNanos();
 
         taps.addLast(now);
-        while (!taps.isEmpty() && now - taps.peekFirst() > 5000L) {
+        while (!taps.isEmpty() && now - taps.peekFirst() > 5_000_000_000L) {
             taps.removeFirst();
         }
 
         totalCount++;
         if (firstTap == 0L) firstTap = now;
         lastTap = now;
-
-        refreshStats();
     }
 
     private synchronized void refreshStats() {
-        long now = android.os.SystemClock.elapsedRealtime();
+        long now = android.os.SystemClock.elapsedRealtimeNanos();
 
-        while (!taps.isEmpty() && now - taps.peekFirst() > 5000L) {
+        while (!taps.isEmpty() && now - taps.peekFirst() > 5_000_000_000L) {
             taps.removeFirst();
         }
 
         int oneSecond = 0;
         for (Long t : taps) {
-            if (now - t <= 1000L) oneSecond++;
+            if (now - t <= 1_000_000_000L) oneSecond++;
         }
 
         if (oneSecond > peakCps) peakCps = oneSecond;
 
-        double fiveSecondRate = taps.size() / 5.0;
+        long elapsed = firstTap == 0L ? 0L : now - firstTap;
+        double windowSeconds = Math.min(5.0, elapsed / 1_000_000_000.0);
+        double fiveSecondRate = windowSeconds > 0.0
+                ? taps.size() / windowSeconds
+                : 0.0;
         double avgInterval = totalCount > 1 && lastTap > firstTap
-                ? (lastTap - firstTap) / (double) (totalCount - 1)
+                ? (lastTap - firstTap) / 1_000_000.0 / (double) (totalCount - 1)
                 : 0.0;
 
         cpsNow.setText("实时 CPS\n" + oneSecond);

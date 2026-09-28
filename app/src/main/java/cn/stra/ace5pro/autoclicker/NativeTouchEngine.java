@@ -84,14 +84,12 @@ public final class NativeTouchEngine {
             Point size = displaySize();
 
             long holdUs = 2000L;
-            long gapUs;
-            if (intervalMs <= 0.0) {
-                gapUs = 2000L;
-            } else {
-                gapUs = Math.max(
-                        2000L,
-                        Math.min(2_000_000L, (long) (intervalMs * 1000.0)));
-            }
+            // The value is now a start-to-start period, not extra delay after
+            // the 2 ms press. 0 ms selects the safe 4 ms minimum (about 250 CPS).
+            long periodUs = intervalMs <= 0.0
+                    ? 4_000L
+                    : Math.max(4_000L, Math.min(2_000_000L,
+                            Math.round(intervalMs * 1000.0)));
 
             StringBuilder cmd = new StringBuilder();
             cmd.append(rootExec).append(' ')
@@ -99,7 +97,7 @@ public final class NativeTouchEngine {
                     .append(size.x).append(' ')
                     .append(size.y).append(' ')
                     .append(holdUs).append(' ')
-                    .append(gapUs).append(' ')
+                    .append(periodUs).append(' ')
                     .append(Math.max(0L, cycles)).append(' ')
                     .append(displayPoints.size());
 

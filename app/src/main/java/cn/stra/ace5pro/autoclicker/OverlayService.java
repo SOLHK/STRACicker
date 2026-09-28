@@ -386,7 +386,7 @@ public final class OverlayService extends Service {
         final double intervalMs;
         final long cycles;
         try {
-            intervalMs = Math.max(10d, Double.parseDouble(prefs.getString("interval_ms", "10")));
+            intervalMs = Math.max(0.5d, Double.parseDouble(prefs.getString("interval_ms", "0.5")));
             cycles = Math.max(0L, prefs.getLong("cycles", 0L));
             if (!Double.isFinite(intervalMs) || intervalMs > 2000) throw new IllegalArgumentException();
         } catch (RuntimeException e) {

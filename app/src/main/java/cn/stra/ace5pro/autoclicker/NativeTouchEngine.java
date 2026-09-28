@@ -98,10 +98,10 @@ public final class NativeTouchEngine {
             Point size = displaySize();
 
             long holdUs = 250L;
-            // Keep at least 10 ms between taps to prevent touch event flooding.
+            // 0.5 ms remains the supported fast-mode minimum.
             long periodUs = intervalMs <= 0.0
-                    ? 10_000L
-                    : Math.max(10_000L, Math.min(2_000_000L,
+                    ? 500L
+                    : Math.max(500L, Math.min(2_000_000L,
                             Math.round(intervalMs * 1000.0)));
 
             StringBuilder cmd = new StringBuilder();

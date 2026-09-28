@@ -232,9 +232,9 @@ int main(int argc, char **argv) {
         return 3;
     }
 
-    /* Keep at least 10 ms between taps to avoid touch event flooding. */
+    /* Preserve 0.5 ms as the minimum start-to-start tap period. */
     if (hold_us < 250ULL) hold_us = 250ULL;
-    if (period_us < 10000ULL) period_us = 10000ULL;
+    if (period_us < 500ULL) period_us = 500ULL;
     if (period_us < hold_us) period_us = hold_us;
     if (period_us > 2000000ULL) period_us = 2000000ULL;
 

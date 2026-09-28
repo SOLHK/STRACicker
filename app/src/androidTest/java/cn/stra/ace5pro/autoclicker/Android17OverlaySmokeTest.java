@@ -54,6 +54,7 @@ public final class Android17OverlaySmokeTest {
         assertNotNull("point and timing controls must live in app settings", settings);
         settings.click();
         assertNotNull(device.wait(Until.findObject(By.text("点击周期（毫秒）")), 5000));
+        assertNotNull(device.findObject(By.text("0.5 ms")));
         assertNotNull(device.findObject(By.text("点击点位")));
         device.pressBack();
         device.findObject(By.text("开启悬浮控制器")).click();

@@ -3,11 +3,13 @@ package cn.stra.ace5pro.autoclicker;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
+import android.content.ClipData;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import androidx.core.content.FileProvider;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -157,6 +159,11 @@ public final class MainActivity extends Activity {
         speed.setOnClickListener(v -> startActivity(new Intent(this, SpeedTestActivity.class)));
         access.setOnClickListener(v -> openOverlaySettings());
 
+        LinearLayout logs = action("导出诊断日志", "生成文本文件，方便发送排查", "↗", surface, primary);
+        LinearLayout.LayoutParams logsLp = new LinearLayout.LayoutParams(-1, dp(66));
+        logsLp.topMargin = dp(10); page.addView(logs, logsLp);
+        logs.setOnClickListener(v -> exportLogs());
+
         TextView device = label(deviceText(), 11, muted); device.setLineSpacing(0, 1.15f);
         LinearLayout.LayoutParams deviceLp = new LinearLayout.LayoutParams(-1, -2); deviceLp.topMargin = dp(18); page.addView(device, deviceLp);
 
@@ -202,8 +209,24 @@ public final class MainActivity extends Activity {
     }
 
     private void emergencyStop() {
+        DiagnosticLog.record(this, "Emergency stop from main screen");
         NativeTouchEngine.hardStop(this); stopService(new Intent(this, OverlayService.class));
         Toast.makeText(this, "已发送急停信号", Toast.LENGTH_SHORT).show(); refresh();
+    }
+
+    private void exportLogs() {
+        try {
+            Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".files",
+                    DiagnosticLog.export(this));
+            Intent send = new Intent(Intent.ACTION_SEND);
+            send.setType("text/plain");
+            send.putExtra(Intent.EXTRA_STREAM, uri);
+            send.setClipData(ClipData.newRawUri("STRACicker log", uri));
+            send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(send, "发送诊断日志"));
+        } catch (Exception e) {
+            Toast.makeText(this, "导出失败：" + e.getClass().getSimpleName(), Toast.LENGTH_LONG).show();
+        }
     }
 
     private void openOverlaySettings() {

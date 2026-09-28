@@ -99,6 +99,7 @@ public final class OverlayService extends Service {
 
         startForegroundNow();
         createPanel();
+        DiagnosticLog.record(this, "Overlay opened");
         restorePoints();
         refreshPointCount();
         probeEngine();
@@ -311,6 +312,7 @@ public final class OverlayService extends Service {
                 | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN;
 
         wm.addView(panel, panelLp);
+        panel.post(this::clampPanel);
 
         panel.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
             if (panelInputFocusMode && !isKeyboardVisible()) {
@@ -370,6 +372,7 @@ public final class OverlayService extends Service {
         panelUi.setCollapsed(true);
         panelLp.width = dp(48); panelLp.height = dp(48);
         clampPanel();
+        DiagnosticLog.record(this, "Overlay collapsed to draggable icon");
     }
 
     private void expandPanel() {
@@ -379,6 +382,7 @@ public final class OverlayService extends Service {
         panelLp.height = WindowManager.LayoutParams.WRAP_CONTENT;
         panel.measure(View.MeasureSpec.makeMeasureSpec(panelLp.width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         clampPanel();
+        DiagnosticLog.record(this, "Overlay expanded");
     }
 
     private void clampPanel() {
@@ -390,6 +394,7 @@ public final class OverlayService extends Service {
     }
 
     private void onCompactIconTap() {
+        DiagnosticLog.record(this, "Compact icon tapped; state=" + gate.state());
         if (gate.state() != RunGate.State.IDLE || engine.isRunning()) requestStop(this::expandPanel);
         else expandPanel();
     }
@@ -408,6 +413,7 @@ public final class OverlayService extends Service {
         NativeTouchEngine.CONTROL.execute(() -> {
             boolean ok = engine.probeSupport();
             main.post(() -> {
+                DiagnosticLog.record(this, "Root engine probe available=" + ok);
                 if (!destroyed && gate.state() == RunGate.State.IDLE)
                     statusText.setText(ok ? "准备就绪 · 添加点位后开始" : "请检查 Root 授权");
             });
@@ -590,10 +596,13 @@ public final class OverlayService extends Service {
             cycles = Long.parseLong(cyclesInput.getText().toString().trim());
             if (!Double.isFinite(intervalMs) || intervalMs < .5 || intervalMs > 2000 || cycles < 0) throw new IllegalArgumentException();
         } catch (IllegalArgumentException e) {
+            DiagnosticLog.record(this, "Start rejected: invalid timing or cycle count");
             statusText.setText("周期为 0.5–2000 毫秒；轮数为非负整数"); return;
         }
         final long token = gate.begin();
         if (token < 0) return;
+        DiagnosticLog.record(this, "Start requested: points=" + points.size()
+                + " intervalMs=" + intervalMs + " cycles=" + cycles);
         hidePanelInput();
         prefs.edit().putString("interval_ms",String.valueOf(intervalMs)).putLong("cycles",cycles).apply();
         deleteMode=false; deleteBtn.setText("编辑");
@@ -602,13 +611,21 @@ public final class OverlayService extends Service {
         NativeTouchEngine.CONTROL.execute(() -> {
             if (!gate.current(token)) return;
             boolean ok=engine.start(target,intervalMs,cycles,message -> main.post(() -> {
-                if (gate.finish(token) && !destroyed) { setRunningUi(false); statusText.setText(message); }
+                if (gate.finish(token) && !destroyed) {
+                    DiagnosticLog.record(this, "Task finished: " + message);
+                    setRunningUi(false); statusText.setText(message);
+                }
             }));
             if (!gate.current(token)) { engine.stopBlocking(); return; }
             main.post(() -> {
                 if (destroyed) return;
-                if (ok && gate.started(token)) statusText.setText("运行中 · " + intervalMs + " ms / 次");
-                else if (!ok && gate.finish(token)) { setRunningUi(false); statusText.setText("启动失败，请检查 Root 权限"); }
+                if (ok && gate.started(token)) {
+                    DiagnosticLog.record(this, "Task running");
+                    statusText.setText("运行中 · " + intervalMs + " ms / 次");
+                } else if (!ok && gate.finish(token)) {
+                    DiagnosticLog.record(this, "Task failed to start");
+                    setRunningUi(false); statusText.setText("启动失败，请检查 Root 权限");
+                }
             });
         });
     }
@@ -618,12 +635,14 @@ public final class OverlayService extends Service {
     private void requestStop(Runnable afterStop) {
         final long token=gate.stop();
         if (token < 0) return;
+        DiagnosticLog.record(this, "Stop requested; state=" + gate.state());
         NativeTouchEngine.signalStopFile(this);
         setRunningUi(true); statusText.setText("正在停止…");
         NativeTouchEngine.CONTROL.execute(() -> {
             engine.stopBlocking();
             main.post(() -> {
                 if (!destroyed && gate.stopped(token)) {
+                    DiagnosticLog.record(this, "Task stopped");
                     setRunningUi(false); statusText.setText("已停止 · 可调整点位和参数");
                     if (afterStop != null) afterStop.run();
                 }
@@ -677,6 +696,7 @@ public final class OverlayService extends Service {
 
     @Override
     public void onDestroy() {
+        DiagnosticLog.record(this, "Overlay closed; state=" + gate.state());
         destroyed = true;
         gate.close();
         NativeTouchEngine.signalStopFile(this);

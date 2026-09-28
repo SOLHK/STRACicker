@@ -35,8 +35,8 @@ final class OverlayPanel extends LinearLayout {
         super(c);
         this.interval = interval; this.cycles = cycles;
         boolean dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
-        surface = Color.parseColor(dark ? "#191C22" : "#F6F8FC");
-        container = Color.parseColor(dark ? "#272D38" : "#E8EDF5");
+        surface = Color.parseColor(dark ? "#202735" : "#FFFFFF");
+        container = Color.parseColor(dark ? "#313D50" : "#E5EBF7");
         ink = Color.parseColor(dark ? "#E7EAF0" : "#19202C");
         muted = Color.parseColor(dark ? "#ACB6C8" : "#596579");
         accent = Color.parseColor(dark ? "#ADC6FF" : "#315DA8");
@@ -46,9 +46,12 @@ final class OverlayPanel extends LinearLayout {
         header = new LinearLayout(c); header.setGravity(Gravity.CENTER_VERTICAL);
         title = text("点击控制", 21, ink); title.setTypeface(null, 1);
         header.addView(title, new LayoutParams(0, dp(48), 1));
-        collapse = iconButton("收起悬浮窗", "collapse"); close = iconButton("关闭悬浮窗", "close");
-        header.addView(collapse, new LayoutParams(dp(48), dp(48)));
-        header.addView(close, new LayoutParams(dp(48), dp(48))); expanded.addView(header);
+        collapse = button("收起", false); close = button("关闭", true);
+        collapse.setContentDescription("收起为可拖动的小图标");
+        close.setContentDescription("关闭悬浮窗");
+        collapse.setTextColor(accent); close.setTextColor(ink);
+        header.addView(collapse, new LayoutParams(dp(66), dp(48)));
+        header.addView(close, new LayoutParams(dp(58), dp(48))); expanded.addView(header);
 
         LinearLayout clockRow = new LinearLayout(c); clockRow.setGravity(Gravity.CENTER_VERTICAL);
         clock = text("--:--:--", 25, ink); clock.setTypeface(android.graphics.Typeface.create("sans-serif-medium", 0));
@@ -61,6 +64,8 @@ final class OverlayPanel extends LinearLayout {
         pointCount = text("尚未添加点位", 14, ink); pointCount.setTypeface(null, 1); pointCard.addView(pointCount);
         LinearLayout edits = new LinearLayout(c); edits.setGravity(Gravity.CENTER_VERTICAL);
         add = button("添加点位", false); add.setIcon(new Symbol("plus"));
+        add.setBackgroundTintList(ColorStateList.valueOf(accent));
+        add.setTextColor(onAccent); add.setIconTint(ColorStateList.valueOf(onAccent));
         delete = button("编辑", true); clear = button("清空", true);
         edits.addView(add, new LayoutParams(0, dp(48), 1.5f));
         edits.addView(delete, new LayoutParams(0, dp(48), 1));
@@ -99,6 +104,7 @@ final class OverlayPanel extends LinearLayout {
         start = button("开始点击", false); start.setTextSize(16); start.setIcon(new Symbol("play"));
         start.setBackgroundTintList(ColorStateList.valueOf(accent)); start.setTextColor(onAccent); start.setIconTint(ColorStateList.valueOf(onAccent));
         stop = button("停止", false); stop.setIcon(new Symbol("stop"));
+        stop.setTextColor(ink); stop.setIconTint(ColorStateList.valueOf(ink));
         actions.addView(start, new LayoutParams(0, dp(56), 1.6f)); LayoutParams stopLp = new LayoutParams(0, dp(56), 1); stopLp.leftMargin=dp(8); actions.addView(stop, stopLp);
         LayoutParams actionsLp=new LayoutParams(-1,-2); actionsLp.topMargin=dp(8); expanded.addView(actions,actionsLp);
         emergency=button("紧急结束",true); emergency.setTextColor(Color.parseColor(dark ? "#FFB4AB" : "#BA1A1A")); expanded.addView(emergency,new LayoutParams(-1,dp(44)));
@@ -108,7 +114,10 @@ final class OverlayPanel extends LinearLayout {
     void setCollapsed(boolean collapsed) {
         expanded.setVisibility(collapsed ? GONE : VISIBLE); mini.setVisibility(collapsed ? VISIBLE : GONE);
         setPadding(collapsed ? 0 : dp(16), collapsed ? 0 : dp(10), collapsed ? 0 : dp(16), collapsed ? 0 : dp(6));
-        setBackground(collapsed ? null : shape(surface,32));
+        GradientDrawable background = shape(surface,32);
+        if (!collapsed) background.setStroke(dp(2), accent);
+        setBackground(collapsed ? null : background);
+        setElevation(collapsed ? dp(8) : dp(14));
     }
     void busy(boolean active, boolean stopping) {
         start.setEnabled(!active); start.setAlpha(active ? .55f : 1f);

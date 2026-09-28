@@ -1,0 +1,24 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'cn.stra.ace5pro.autoclicker'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'cn.stra.autoclicker'
+        minSdk 26
+        targetSdk 35
+        versionCode 6
+        versionName '2.0.4-ace5pro'
+    }
+
+    buildTypes {
+        debug {
+            // Uses Android's default debug keystore.
+        }
+        release {
+            minifyEnabled false
+            // Configure your own signingConfig before publishing a release build.
+        }
+    }
+}

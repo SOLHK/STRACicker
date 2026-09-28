@@ -26,7 +26,7 @@ import java.util.List;
 final class OverlayPanel extends LinearLayout {
     final LinearLayout expanded, header, body;
     final TextView title, clock, clockStatus, status, pointCount, mini;
-    final MaterialButton collapse, close, add, delete, clear, start, stop, emergency;
+    final MaterialButton collapse, close, add, delete, clear, start, stop;
     final int surface, ink, muted, accent, onAccent, container;
     private final List<MaterialButton> presets = new ArrayList<>();
     private final EditText interval, cycles;
@@ -107,8 +107,7 @@ final class OverlayPanel extends LinearLayout {
         stop.setTextColor(ink); stop.setIconTint(ColorStateList.valueOf(ink));
         actions.addView(start, new LayoutParams(0, dp(56), 1.6f)); LayoutParams stopLp = new LayoutParams(0, dp(56), 1); stopLp.leftMargin=dp(8); actions.addView(stop, stopLp);
         LayoutParams actionsLp=new LayoutParams(-1,-2); actionsLp.topMargin=dp(8); expanded.addView(actions,actionsLp);
-        emergency=button("紧急结束",true); emergency.setTextColor(Color.parseColor(dark ? "#FFB4AB" : "#BA1A1A")); expanded.addView(emergency,new LayoutParams(-1,dp(44)));
-        mini=text("S",21,onAccent); mini.setTypeface(null,1); mini.setGravity(Gravity.CENTER); mini.setBackground(shape(accent,24)); mini.setContentDescription("轻点停止并展开，拖动移动位置"); mini.setVisibility(GONE); addView(mini,new LayoutParams(dp(48),dp(48)));
+        mini=text("S",21,onAccent); mini.setTypeface(null,1); mini.setGravity(Gravity.CENTER); mini.setBackground(shape(accent,24)); mini.setContentDescription("轻点暂停并展开，拖动移动位置"); mini.setVisibility(GONE); addView(mini,new LayoutParams(dp(48),dp(48)));
         setCollapsed(false);
     }
     void setCollapsed(boolean collapsed) {

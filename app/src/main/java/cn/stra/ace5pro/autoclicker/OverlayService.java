@@ -3,7 +3,6 @@ package cn.stra.ace5pro.autoclicker;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
-import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -66,7 +65,6 @@ public final class OverlayService extends Service {
     private TextView deleteBtn;
     private TextView startBtn;
     private TextView stopBtn;
-    private TextView forceBtn;
 
     private EditText intervalInput;
     private EditText cyclesInput;
@@ -109,10 +107,6 @@ public final class OverlayService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null && "STOP_ALL".equals(intent.getAction())) {
-            forceStopEverything(false);
-            stopSelf();
-        }
         return START_NOT_STICKY;
     }
 
@@ -128,27 +122,14 @@ public final class OverlayService extends Service {
             getSystemService(NotificationManager.class).createNotificationChannel(channel);
         }
 
-        Intent emergency = new Intent(this, EmergencyStopReceiver.class)
-                .setAction("STRA_EMERGENCY_STOP");
-
-        PendingIntent emergencyPi = PendingIntent.getBroadcast(
-                this,
-                99,
-                emergency,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-
         Notification.Builder b = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(this, id)
                 : new Notification.Builder(this);
 
         b.setContentTitle("STRA 连点器正在运行")
-                .setContentText("通知栏可随时强制停止")
+                .setContentText("悬浮控制器已就绪")
                 .setSmallIcon(android.R.drawable.ic_media_play)
-                .setOngoing(true)
-                .addAction(new Notification.Action.Builder(
-                        android.R.drawable.ic_delete,
-                        "强制停止",
-                        emergencyPi).build());
+                .setOngoing(true);
 
         startForeground(2101, b.build());
     }
@@ -288,7 +269,7 @@ public final class OverlayService extends Service {
         titleText = panelUi.title; beijingClock = panelUi.clock; clockView = beijingClock;
         statusText = panelUi.status; pointText = panelUi.pointCount;
         miniIcon = panelUi.mini; collapseBtn = panelUi.collapse;
-        deleteBtn = panelUi.delete; startBtn = panelUi.start; stopBtn = panelUi.stop; forceBtn = panelUi.emergency;
+        deleteBtn = panelUi.delete; startBtn = panelUi.start; stopBtn = panelUi.stop;
         TextView closeBtn = panelUi.close, pickBtn = panelUi.add, clearBtn = panelUi.clear;
 
         int type = Build.VERSION.SDK_INT >= 26
@@ -330,7 +311,7 @@ public final class OverlayService extends Service {
         miniIcon.setOnTouchListener(new CompactIconDrag());
 
         closeBtn.setOnClickListener(v -> {
-            forceStopEverything(false);
+            requestStop(null);
             stopSelf();
         });
 
@@ -360,7 +341,6 @@ public final class OverlayService extends Service {
 
         startBtn.setOnClickListener(v -> startClicking());
         stopBtn.setOnClickListener(v -> stopClicking());
-        forceBtn.setOnClickListener(v -> forceStopEverything(true));
         panelUi.busy(false, false);
     }
 
@@ -648,11 +628,6 @@ public final class OverlayService extends Service {
                 }
             });
         });
-    }
-
-    private void forceStopEverything(boolean toast) {
-        requestStop(null);
-        if (toast) Toast.makeText(this,"正在结束点击任务",Toast.LENGTH_SHORT).show();
     }
 
     private void setRunningUi(boolean active) {

@@ -45,10 +45,5 @@
                 android:value="User-controlled floating click controller"/>
         </service>
 
-        <receiver
-            android:name=".EmergencyStopReceiver"
-            android:exported="false"
-            android:process=":stopper"/>
-
     </application>
 </manifest>

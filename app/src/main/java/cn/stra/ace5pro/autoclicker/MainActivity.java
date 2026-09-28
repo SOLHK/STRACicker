@@ -32,7 +32,7 @@ import java.util.TimeZone;
 public final class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm:ss", Locale.CHINA);
-    private int bg, surface, surfaceAlt, ink, muted, primary, primaryInk, outline, good, danger;
+    private int bg, surface, surfaceAlt, ink, muted, primary, primaryInk, outline, good;
     private View rootState, overlayState, engineState;
     private TextView beijingTime, beijingSource;
 
@@ -65,7 +65,6 @@ public final class MainActivity extends Activity {
         primaryInk = Color.rgb(dark ? 23 : 255, dark ? 36 : 255, dark ? 61 : 255);
         outline = Color.rgb(dark ? 72 : 222, dark ? 77 : 225, dark ? 91 : 234);
         good = Color.rgb(dark ? 131 : 31, dark ? 213 : 113, dark ? 164 : 87);
-        danger = Color.rgb(dark ? 255 : 179, dark ? 180 : 38, dark ? 171 : 54);
     }
 
     private void styleSystemBars() {
@@ -145,10 +144,6 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams startLp = new LinearLayout.LayoutParams(-1, dp(76)); startLp.topMargin = dp(18);
         page.addView(start, startLp); start.setOnClickListener(v -> startOverlay());
 
-        LinearLayout emergency = action("紧急停止", "结束正在运行的点击任务", "■", surface, danger);
-        LinearLayout.LayoutParams emergencyLp = new LinearLayout.LayoutParams(-1, dp(70)); emergencyLp.topMargin = dp(9);
-        page.addView(emergency, emergencyLp); emergency.setOnClickListener(v -> emergencyStop());
-
         LinearLayout tools = new LinearLayout(this); tools.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout speed = tile("速度测试", "CPS 与点击间隔", "↗");
         LinearLayout access = tile("悬浮权限", "授权与窗口管理", "◉");
@@ -206,12 +201,6 @@ public final class MainActivity extends Activity {
         BeijingTimeManager.ensureSync(this); Intent i = new Intent(this, OverlayService.class);
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i);
         Toast.makeText(this, "STRA 悬浮控制器已开启", Toast.LENGTH_SHORT).show();
-    }
-
-    private void emergencyStop() {
-        DiagnosticLog.record(this, "Emergency stop from main screen");
-        NativeTouchEngine.hardStop(this); stopService(new Intent(this, OverlayService.class));
-        Toast.makeText(this, "已发送急停信号", Toast.LENGTH_SHORT).show(); refresh();
     }
 
     private void exportLogs() {

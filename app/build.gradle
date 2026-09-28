@@ -13,6 +13,7 @@ android {
         applicationId 'cn.stra.autoclicker'
         minSdk 26
         targetSdk 35
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         versionCode 16
         versionName '2.21-ace5pro'
     }
@@ -45,4 +46,8 @@ if (stableKeyPath && stableStorePassword && stableKeyPassword) {
 dependencies {
     implementation 'com.google.android.material:material:1.13.0'
     testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'androidx.test:rules:1.6.1'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test.uiautomator:uiautomator:2.3.0'
 }

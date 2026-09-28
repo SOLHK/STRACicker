@@ -1,0 +1,32 @@
+name: Android 17 UI smoke test
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  api-37:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Run UI smoke test on Android 17
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 37
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          ram-size: 4096
+          heap-size: 512
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: gradle :app:connectedDebugAndroidTest --stacktrace

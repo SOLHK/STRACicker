@@ -6,7 +6,6 @@ import static org.junit.Assert.assertNotEquals;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Point;
-import android.provider.Settings;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -40,6 +39,8 @@ public final class Android17OverlaySmokeTest {
         assertNotNull(launch);
         launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         context.startActivity(launch);
+        UiScrollable page = new UiScrollable(new UiSelector().scrollable(true));
+        assertTrue(page.scrollTextIntoView("开启悬浮控制器"));
         assertNotNull(device.wait(Until.findObject(By.text("开启悬浮控制器")), 10000));
     }
 

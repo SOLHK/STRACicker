@@ -22,6 +22,7 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 37
+          channel: canary
           target: google_apis
           arch: x86_64
           profile: pixel_7

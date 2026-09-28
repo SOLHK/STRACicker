@@ -87,6 +87,30 @@ public final class Android17OverlaySmokeTest {
         assertTrue(log.contains("Overlay opened"));
     }
 
+
+    @Test public void addPointOpensTemporaryFloatingPickerSession() throws Exception {
+        UiScrollable page = new UiScrollable(new UiSelector().scrollable(true));
+        page.scrollTextIntoView("点击设置");
+        device.findObject(By.text("点击设置")).click();
+        UiObject2 addPoint = device.wait(Until.findObject(By.text("＋ 添加点位")), 5000);
+        assertNotNull(addPoint);
+        addPoint.click();
+
+        UiObject2 addInFloat = device.wait(Until.findObject(By.desc("添加一个点位")), 10000);
+        assertNotNull("point setup should leave a small floating tool over the home screen", addInFloat);
+        assertNotNull(device.findObject(By.desc("拖动点位工具条")));
+        addInFloat.click();
+        assertNotNull("the transparent picker should appear only while choosing a coordinate",
+                device.wait(Until.findObject(By.text("点屏幕添加位置 · 点这里取消")), 5000));
+        device.click(300, 600);
+        assertNotNull(device.wait(Until.findObject(By.desc("添加一个点位")), 5000));
+        UiObject2 done = device.findObject(By.desc("完成点位设置并返回设置页"));
+        assertNotNull(done);
+        done.click();
+        assertNotNull("finishing should return to the point settings screen",
+                device.wait(Until.findObject(By.text("点击设置")), 10000));
+    }
+
     @After public void stopService() {
         if (context != null) context.stopService(new Intent(context, OverlayService.class));
     }

@@ -48,11 +48,15 @@ public final class OverlayService extends Service {
     private View miniIcon;
     private WindowManager.LayoutParams panelLp;
     private View pickOverlay;
+    private PointSessionPanel sessionPanel;
+    private WindowManager.LayoutParams sessionLp;
 
+    private boolean pointSessionActive;
     private boolean runningUi = false;
     private boolean showPointMarkers;
     private boolean pendingReload;
     private static volatile boolean serviceActive;
+    private static volatile boolean taskActive;
     private int markerSizePx;
 
     private final Runnable clockTicker = new Runnable() {
@@ -90,20 +94,20 @@ public final class OverlayService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null) {
             String action = intent.getAction();
-            if (ACTION_PICK_POINT.equals(action)) { setPointMarkersVisible(true); openPickOverlay(); }
+            if (ACTION_BEGIN_POINT_SESSION.equals(action) || ACTION_PICK_POINT.equals(action)) beginPointSession();
             else if (ACTION_RELOAD_POINTS.equals(action)) reloadPoints();
-            else if (ACTION_SHOW_POINTS.equals(action)) setPointMarkersVisible(true);
-            else if (ACTION_HIDE_POINTS.equals(action)) setPointMarkersVisible(false);
+            else if (ACTION_HIDE_POINTS.equals(action) && !pointSessionActive) setPointMarkersVisible(false);
         }
         return START_NOT_STICKY;
     }
 
     static final String ACTION_POINT_ADDED = "cn.stra.ace5pro.autoclicker.POINT_ADDED";
     static final String ACTION_PICK_POINT = "cn.stra.ace5pro.autoclicker.PICK_POINT";
+    static final String ACTION_BEGIN_POINT_SESSION = "cn.stra.ace5pro.autoclicker.BEGIN_POINT_SESSION";
     static final String ACTION_RELOAD_POINTS = "cn.stra.ace5pro.autoclicker.RELOAD_POINTS";
-    static final String ACTION_SHOW_POINTS = "cn.stra.ace5pro.autoclicker.SHOW_POINTS";
     static final String ACTION_HIDE_POINTS = "cn.stra.ace5pro.autoclicker.HIDE_POINTS";
     static boolean isServiceActive() { return serviceActive; }
+    static boolean isTaskRunning() { return taskActive; }
 
     private void startForegroundNow() {
         final String id = "stra_ace5pro_clicker";
@@ -207,8 +211,55 @@ public final class OverlayService extends Service {
         });
     }
 
+    private void beginPointSession() {
+        if (pointSessionActive) return;
+        if (runningUi || engine.isRunning()) {
+            Toast.makeText(this, "请先停止任务再编辑点位", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        pointSessionActive = true;
+        setPointMarkersVisible(true);
+        panel.setVisibility(View.GONE);
+        sessionPanel = new PointSessionPanel(uiContext);
+        sessionPanel.setPointCount(points.size());
+        sessionPanel.add.setOnClickListener(v -> openPickOverlay());
+        sessionPanel.finish.setOnClickListener(v -> endPointSession(true));
+        int type = Build.VERSION.SDK_INT >= 26
+                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                : WindowManager.LayoutParams.TYPE_PHONE;
+        sessionLp = new WindowManager.LayoutParams(
+                dp(224), dp(52), type,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT);
+        sessionLp.gravity = Gravity.TOP | Gravity.START;
+        sessionLp.x = prefs.getInt("point_session_x", dp(12));
+        sessionLp.y = prefs.getInt("point_session_y", dp(76));
+        wm.addView(sessionPanel, sessionLp);
+        sessionPanel.dragHandle.setOnTouchListener(new SessionPanelDrag());
+        DiagnosticLog.record(this, "Point selection session started");
+    }
+
+    private void endPointSession(boolean returnToSettings) {
+        removePickOverlay();
+        pointSessionActive = false;
+        setPointMarkersVisible(false);
+        try { if (sessionPanel != null) wm.removeView(sessionPanel); } catch (Throwable ignored) {}
+        sessionPanel = null;
+        sessionLp = null;
+        if (panel != null) panel.setVisibility(View.VISIBLE);
+        DiagnosticLog.record(this, "Point selection session finished");
+        if (returnToSettings && !destroyed) {
+            Intent settings = new Intent(this, ClickSettingsActivity.class);
+            settings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            try { startActivity(settings); } catch (Throwable ignored) {}
+        }
+    }
+
     private void openPickOverlay() {
-        if (pickOverlay != null) return;
+        if (!pointSessionActive || pickOverlay != null) return;
 
         FrameLayout capture = new FrameLayout(this);
         capture.setBackgroundColor(Color.argb(20, 0, 0, 0));
@@ -248,6 +299,7 @@ public final class OverlayService extends Service {
 
                 removePickOverlay();
                 addPoint(x, y, true);
+                if (sessionPanel != null) sessionPanel.setPointCount(points.size());
                 sendBroadcast(new Intent(ACTION_POINT_ADDED).setPackage(getPackageName()));
                 return true;
             }
@@ -306,6 +358,7 @@ public final class OverlayService extends Service {
 
         refreshMarkers();
         savePoints();
+        if (sessionPanel != null) sessionPanel.setPointCount(points.size());
         sendBroadcast(new Intent(ACTION_POINT_ADDED).setPackage(getPackageName()));
     }
 
@@ -399,6 +452,7 @@ public final class OverlayService extends Service {
 
     private void setRunningUi(boolean active) {
         runningUi=active;
+        taskActive=active;
         panelUi.setRunning(active, gate.state() == RunGate.State.STOPPING);
         for (PointView p:points) {
             if (active) p.lp.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
@@ -420,6 +474,7 @@ public final class OverlayService extends Service {
         for (PointView p : new ArrayList<>(points)) try { wm.removeView(p.view); } catch (Throwable ignored) {}
         points.clear();
         restorePoints();
+        if (sessionPanel != null) sessionPanel.setPointCount(points.size());
     }
 
     /** Keep the pill outside configured touch targets before starting rapid input. */
@@ -480,12 +535,14 @@ public final class OverlayService extends Service {
         DiagnosticLog.record(this, "Overlay closed; state=" + gate.state());
         destroyed = true;
         serviceActive = false;
+        taskActive = false;
         gate.close();
         NativeTouchEngine.signalStopFile(this);
         main.removeCallbacksAndMessages(null);
         NativeTouchEngine.CONTROL.execute(() -> engine.stopBlocking());
         removePickOverlay();
 
+        try { if (sessionPanel != null) wm.removeView(sessionPanel); } catch (Throwable ignored) {}
         try { if (panel != null) wm.removeView(panel); } catch (Throwable ignored) {}
 
         for (PointView p : new ArrayList<>(points)) {
@@ -499,6 +556,35 @@ public final class OverlayService extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         return null;
+    }
+
+    private final class SessionPanelDrag implements View.OnTouchListener {
+        int originX, originY;
+        float downX, downY;
+        boolean moved;
+        @Override public boolean onTouch(View view, MotionEvent event) {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    originX = sessionLp.x; originY = sessionLp.y;
+                    downX = event.getRawX(); downY = event.getRawY(); moved = false;
+                    return true;
+                case MotionEvent.ACTION_MOVE: {
+                    float dx = event.getRawX() - downX, dy = event.getRawY() - downY;
+                    if (Math.abs(dx) > dp(4) || Math.abs(dy) > dp(4)) moved = true;
+                    if (moved) {
+                        Point size = new Point(); wm.getDefaultDisplay().getRealSize(size);
+                        sessionLp.x = Math.max(0, Math.min(size.x-sessionLp.width, originX+Math.round(dx)));
+                        sessionLp.y = Math.max(dp(24), Math.min(size.y-sessionLp.height-dp(24), originY+Math.round(dy)));
+                        try { wm.updateViewLayout(sessionPanel, sessionLp); } catch (Throwable ignored) {}
+                    }
+                    return true;
+                }
+                case MotionEvent.ACTION_UP:
+                    if (moved) prefs.edit().putInt("point_session_x", sessionLp.x).putInt("point_session_y", sessionLp.y).apply();
+                    return true;
+                default: return true;
+            }
+        }
     }
 
     private final class CompactIconDrag implements View.OnTouchListener {

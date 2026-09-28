@@ -11,10 +11,15 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class NativeTouchEngine {
+    private static final ExecutorService HARD_STOP_EXECUTOR =
+            Executors.newSingleThreadExecutor(r -> new Thread(r, "stra-hard-stop"));
+
     public interface Listener {
         void onFinished(String message);
     }
@@ -83,12 +88,11 @@ public final class NativeTouchEngine {
 
             Point size = displaySize();
 
-            long holdUs = 2000L;
-            // The value is now a start-to-start period, not extra delay after
-            // the 2 ms press. 0 ms selects the safe 4 ms minimum (about 250 CPS).
+            long holdUs = 500L;
+            // The value is a complete start-to-start period. Fast mode is 1 ms.
             long periodUs = intervalMs <= 0.0
-                    ? 4_000L
-                    : Math.max(4_000L, Math.min(2_000_000L,
+                    ? 1_000L
+                    : Math.max(1_000L, Math.min(2_000_000L,
                             Math.round(intervalMs * 1000.0)));
 
             StringBuilder cmd = new StringBuilder();
@@ -188,19 +192,36 @@ public final class NativeTouchEngine {
 
     public static void hardStop(Context context) {
         Context app = context.getApplicationContext();
+        signalStopFile(app);
+        HARD_STOP_EXECUTOR.execute(() -> {
+            terminateRootHelper();
+        });
+    }
 
+    static void hardStopBlocking(Context context) {
+        signalStopFile(context.getApplicationContext());
+        terminateRootHelper();
+    }
+
+    private static void signalStopFile(Context app) {
         try {
             File stop = new File(app.getFilesDir(), "stra_uinput.stop");
             new FileOutputStream(stop, false).close();
         } catch (Throwable ignored) {}
+    }
 
-        try {
-            String cmd =
-                    "killall -TERM stra_touch_ace5pro 2>/dev/null || true; "
-                    + "sleep 0.15; "
-                    + "killall -KILL stra_touch_ace5pro 2>/dev/null || true";
-            TouchDeviceDetector.execRoot(cmd);
-        } catch (Throwable ignored) {}
+    private static void terminateRootHelper() {
+        String cmd = "helper=/data/local/tmp/stra_touch_ace5pro; "
+                + "pidfile=/data/local/tmp/stra_touch_ace5pro.pid; "
+                + "pid=$(cat \"$pidfile\" 2>/dev/null); "
+                + "case \"$pid\" in ''|*[!0-9]*) exit 0;; esac; "
+                + "exe=$(readlink \"/proc/$pid/exe\" 2>/dev/null); "
+                + "[ \"$exe\" = \"$helper\" ] || exit 0; "
+                + "kill -TERM \"$pid\" 2>/dev/null; sleep 0.08; "
+                + "exe=$(readlink \"/proc/$pid/exe\" 2>/dev/null); "
+                + "[ \"$exe\" = \"$helper\" ] && kill -KILL \"$pid\" 2>/dev/null; "
+                + "rm -f \"$pidfile\"";
+        TouchDeviceDetector.execRoot(cmd, 2500L);
     }
 
     private String prepareRootHelper() {

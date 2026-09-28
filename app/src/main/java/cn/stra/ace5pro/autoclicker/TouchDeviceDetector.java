@@ -164,25 +164,36 @@ public final class TouchDeviceDetector {
     }
 
     public static String execRoot(String command) {
+        return execRoot(command, 6000L);
+    }
+
+    public static String execRoot(String command, long timeoutMs) {
         Process p = null;
         try {
             p = new ProcessBuilder("su", "-c", command)
                     .redirectErrorStream(true)
                     .start();
 
-            if (!p.waitFor(6, TimeUnit.SECONDS)) {
+            final Process process = p;
+            final StringBuilder out = new StringBuilder();
+            Thread drain = new Thread(() -> {
+                try (BufferedReader br = new BufferedReader(
+                        new InputStreamReader(process.getInputStream()))) {
+                    String line;
+                    while ((line = br.readLine()) != null) {
+                        synchronized (out) { out.append(line).append('\n'); }
+                    }
+                } catch (Throwable ignored) {}
+            }, "stra-root-output");
+            drain.setDaemon(true);
+            drain.start();
+
+            if (!p.waitFor(Math.max(250L, timeoutMs), TimeUnit.MILLISECONDS)) {
                 p.destroyForcibly();
                 return null;
             }
-
-            BufferedReader br =
-                    new BufferedReader(new InputStreamReader(p.getInputStream()));
-            StringBuilder out = new StringBuilder();
-            String line;
-            while ((line = br.readLine()) != null) {
-                out.append(line).append('\n');
-            }
-            return out.toString();
+            drain.join(300L);
+            synchronized (out) { return out.toString(); }
         } catch (Throwable t) {
             return null;
         } finally {

@@ -12,7 +12,7 @@ public final class EmergencyStopReceiver extends BroadcastReceiver {
 
         new Thread(() -> {
             try {
-                NativeTouchEngine.hardStop(context);
+                NativeTouchEngine.hardStopBlocking(context);
                 context.stopService(new Intent(context, OverlayService.class));
 
                 NotificationManager nm =

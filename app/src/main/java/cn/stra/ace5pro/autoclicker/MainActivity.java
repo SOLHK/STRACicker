@@ -98,12 +98,24 @@ public final class MainActivity extends Activity {
     private LinearLayout actionCard(String title, String sub) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(16), dp(14), dp(16), dp(14));
-        card.setBackground(bg(Color.argb(218, 26, 32, 45), 20));
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(dp(18), dp(13), dp(18), dp(13));
 
-        TextView t = text(title, 16, Color.WHITE);
+        int top = title.contains("急停") ? Color.rgb(163, 43, 59)
+                : title.contains("开启") ? Color.rgb(24, 111, 235)
+                : Color.rgb(35, 48, 69);
+        int bottom = title.contains("急停") ? Color.rgb(111, 34, 52)
+                : title.contains("开启") ? Color.rgb(27, 72, 158)
+                : Color.rgb(20, 28, 43);
+        GradientDrawable cardBg = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR, new int[]{top, bottom});
+        cardBg.setCornerRadius(dp(22));
+        cardBg.setStroke(dp(1), Color.argb(72, 210, 229, 255));
+        card.setBackground(cardBg);
+
+        TextView t = text(title, 17, Color.WHITE);
         t.setTypeface(null, 1);
-        TextView s = text(sub, 12.5f, Color.rgb(150, 164, 188));
+        TextView s = text(sub, 13, Color.rgb(205, 216, 233));
         s.setPadding(0, dp(4), 0, 0);
 
         card.addView(t);
@@ -129,14 +141,14 @@ public final class MainActivity extends Activity {
         brand.setTypeface(null, 1);
         root.addView(brand);
 
-        TextView title = text("连点器", 34, Color.WHITE);
+        TextView title = text("连点控制台", 31, Color.WHITE);
         title.setTypeface(null, 1);
         root.addView(title);
 
         TextView sub = text(
-                "OnePlus Ace 5 Pro · Root · uinput 虚拟触摸",
-                13,
-                Color.rgb(151, 164, 188));
+                "STRA  ·  Ace 5 Pro 专用  ·  Root / uinput",
+                13.5f,
+                Color.rgb(177, 194, 220));
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(-1, -2);
         subLp.setMargins(0, dp(4), 0, dp(16));
         root.addView(sub, subLp);
@@ -188,12 +200,19 @@ public final class MainActivity extends Activity {
         LinearLayout start = actionCard(
                 "开启悬浮控制器",
                 "添加点位、开始 / 停止、强制结束、显示北京时间");
-        start.setBackground(bg(Color.argb(235, 28, 101, 220), 20));
         start.setOnClickListener(v -> startOverlay());
 
         LinearLayout.LayoutParams a1 = new LinearLayout.LayoutParams(-1, dp(76));
         a1.setMargins(0, dp(12), 0, 0);
         root.addView(start, a1);
+
+        LinearLayout emergency = actionCard(
+                "紧急停止 / 关闭点击",
+                "立即发出停止信号，并结束 Root 点击进程");
+        emergency.setOnClickListener(v -> emergencyStop());
+        LinearLayout.LayoutParams emergencyLp = new LinearLayout.LayoutParams(-1, dp(76));
+        emergencyLp.setMargins(0, dp(8), 0, 0);
+        root.addView(emergency, emergencyLp);
 
         LinearLayout speed = actionCard(
                 "点击速度测试",
@@ -267,6 +286,13 @@ public final class MainActivity extends Activity {
         }
 
         Toast.makeText(this, "STRA 悬浮控制器已开启", Toast.LENGTH_SHORT).show();
+    }
+
+    private void emergencyStop() {
+        NativeTouchEngine.hardStop(this);
+        stopService(new Intent(this, OverlayService.class));
+        Toast.makeText(this, "已发送急停信号", Toast.LENGTH_SHORT).show();
+        refresh();
     }
 
     private void openOverlaySettings() {

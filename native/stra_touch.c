@@ -2,7 +2,6 @@
 #include <fcntl.h>
 #include <linux/input.h>
 #include <linux/uinput.h>
-#include <sched.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -13,6 +12,7 @@
 #include <unistd.h>
 
 static volatile sig_atomic_t g_running = 1;
+static const char *PID_FILE = "/data/local/tmp/stra_touch_ace5pro.pid";
 
 static void on_signal(int sig) {
     (void)sig;
@@ -147,6 +147,25 @@ static int stop_requested(const char *path) {
     return access(path, F_OK) == 0;
 }
 
+static void write_pid_file(void) {
+    FILE *f = fopen(PID_FILE, "w");
+    if (f) {
+        fprintf(f, "%ld\n", (long)getpid());
+        fclose(f);
+    }
+}
+
+static void remove_pid_file(void) {
+    FILE *f = fopen(PID_FILE, "r");
+    if (f) {
+        long pid = -1;
+        if (fscanf(f, "%ld", &pid) == 1 && pid == (long)getpid()) {
+            unlink(PID_FILE);
+        }
+        fclose(f);
+    }
+}
+
 static struct timespec add_us(struct timespec ts, uint64_t us) {
     ts.tv_sec += (time_t)(us / 1000000ULL);
     ts.tv_nsec += (long)((us % 1000000ULL) * 1000ULL);
@@ -213,9 +232,10 @@ int main(int argc, char **argv) {
         return 3;
     }
 
-    /* Keep a short but observable contact and prevent input-event floods. */
-    if (hold_us < 2000ULL) hold_us = 2000ULL;
-    if (period_us < hold_us + 2000ULL) period_us = hold_us + 2000ULL;
+    /* Fast mode uses a 0.5 ms contact in a 1 ms total click period. */
+    if (hold_us < 500ULL) hold_us = 500ULL;
+    if (period_us < 1000ULL) period_us = 1000ULL;
+    if (period_us < hold_us) period_us = hold_us;
     if (period_us > 2000000ULL) period_us = 2000000ULL;
 
     int *xy = (int *)calloc((size_t)count * 2U, sizeof(int));
@@ -249,11 +269,11 @@ int main(int argc, char **argv) {
     }
 
     unlink(stop_path);
+    write_pid_file();
     printf("READY\n");
     fflush(stdout);
 
     uint64_t round = 0;
-    uint64_t tap_counter = 0;
     int tracking_id = 1000;
 
     while (g_running && (cycles == 0 || round < cycles)) {
@@ -293,7 +313,6 @@ int main(int argc, char **argv) {
                 break;
             }
 
-            ++tap_counter;
             if (tracking_id > 65000) tracking_id = 1000;
 
             if (stop_requested(stop_path)) {
@@ -306,9 +325,6 @@ int main(int argc, char **argv) {
                 break;
             }
 
-            if ((tap_counter & 63ULL) == 0ULL) {
-                sched_yield();
-            }
         }
         ++round;
     }
@@ -317,5 +333,6 @@ int main(int argc, char **argv) {
     destroy_uinput(fd);
     free(xy);
     unlink(stop_path);
+    remove_pid_file();
     return 0;
 }

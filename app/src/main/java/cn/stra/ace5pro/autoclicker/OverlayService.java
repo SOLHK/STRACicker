@@ -173,9 +173,9 @@ public final class OverlayService extends Service {
     }
 
     private TextView button(String value) {
-        TextView v = text(value, 12.2f, Color.WHITE);
-        v.setBackground(bg(Color.argb(225, 40, 47, 62), 13));
-        v.setPadding(dp(6), 0, dp(6), 0);
+        TextView v = text(value, 13.5f, Color.WHITE);
+        v.setBackground(bg(Color.argb(232, 42, 53, 72), 14));
+        v.setPadding(dp(8), 0, dp(8), 0);
         return v;
     }
 
@@ -184,7 +184,7 @@ public final class OverlayService extends Service {
         e.setText(value);
         e.setHint(hint);
         e.setSingleLine(true);
-        e.setTextSize(11.2f);
+        e.setTextSize(13.5f);
         e.setTextColor(Color.WHITE);
         e.setHintTextColor(Color.rgb(113, 125, 147));
         e.setGravity(Gravity.CENTER);
@@ -201,14 +201,14 @@ public final class OverlayService extends Service {
     private void createPanel() {
         panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(8), dp(8), dp(8), dp(8));
+        panel.setPadding(dp(12), dp(11), dp(12), dp(12));
         panel.setBackground(glassBg());
 
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
 
-        titleText = text("STRA · 编辑", 13.3f, Color.WHITE);
+        titleText = text("STRA  /  点击控制", 15.5f, Color.WHITE);
         titleText.setTypeface(null, 1);
         titleText.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
         titleText.setPadding(dp(3), 0, 0, 0);
@@ -216,40 +216,40 @@ public final class OverlayService extends Service {
         collapseBtn = button("—");
         TextView closeBtn = button("×");
 
-        header.addView(titleText, new LinearLayout.LayoutParams(0, dp(36), 1f));
+        header.addView(titleText, new LinearLayout.LayoutParams(0, dp(42), 1f));
 
-        LinearLayout.LayoutParams h1 = new LinearLayout.LayoutParams(dp(36), dp(36));
+        LinearLayout.LayoutParams h1 = new LinearLayout.LayoutParams(dp(42), dp(42));
         h1.setMargins(dp(5), 0, 0, 0);
         header.addView(collapseBtn, h1);
 
-        LinearLayout.LayoutParams h2 = new LinearLayout.LayoutParams(dp(36), dp(36));
+        LinearLayout.LayoutParams h2 = new LinearLayout.LayoutParams(dp(42), dp(42));
         h2.setMargins(dp(5), 0, 0, 0);
         header.addView(closeBtn, h2);
 
         panel.addView(header);
 
-        beijingClock = text("北京时间 --:--:--", 13, Color.rgb(123, 192, 255));
+        beijingClock = text("北京时间  --:--:--", 15, Color.rgb(139, 207, 255));
         beijingClock.setTypeface(null, 1);
         beijingClock.setGravity(Gravity.CENTER_VERTICAL);
         beijingClock.setPadding(dp(4), 0, dp(4), 0);
         beijingClock.setBackground(bg(Color.argb(115, 34, 92, 160), 12));
 
-        LinearLayout.LayoutParams clockLp = new LinearLayout.LayoutParams(-1, dp(34));
+        LinearLayout.LayoutParams clockLp = new LinearLayout.LayoutParams(-1, dp(42));
         clockLp.setMargins(0, dp(5), 0, 0);
         panel.addView(beijingClock, clockLp);
 
         body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
 
-        statusText = text("引擎：检测中…", 10.3f, Color.rgb(178, 191, 216));
+        statusText = text("状态  ·  正在检测触摸引擎…", 12.5f, Color.rgb(196, 210, 231));
         statusText.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
         statusText.setPadding(dp(4), 0, dp(4), 0);
-        body.addView(statusText, new LinearLayout.LayoutParams(-1, dp(28)));
+        body.addView(statusText, new LinearLayout.LayoutParams(-1, dp(34)));
 
-        pointText = text("0 个点位", 10.3f, Color.rgb(115, 208, 255));
+        pointText = text("0 个点位", 12.5f, Color.rgb(115, 208, 255));
         pointText.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
         pointText.setPadding(dp(4), 0, dp(4), 0);
-        body.addView(pointText, new LinearLayout.LayoutParams(-1, dp(23)));
+        body.addView(pointText, new LinearLayout.LayoutParams(-1, dp(28)));
 
         LinearLayout editRow = new LinearLayout(this);
         editRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -258,13 +258,13 @@ public final class OverlayService extends Service {
         deleteBtn = button("删除");
         TextView clearBtn = button("清空");
 
-        editRow.addView(pickBtn, new LinearLayout.LayoutParams(0, dp(38), 1f));
+        editRow.addView(pickBtn, new LinearLayout.LayoutParams(0, dp(44), 1f));
 
-        LinearLayout.LayoutParams er2 = new LinearLayout.LayoutParams(0, dp(38), 1f);
+        LinearLayout.LayoutParams er2 = new LinearLayout.LayoutParams(0, dp(44), 1f);
         er2.setMargins(dp(5), 0, 0, 0);
         editRow.addView(deleteBtn, er2);
 
-        LinearLayout.LayoutParams er3 = new LinearLayout.LayoutParams(0, dp(38), 1f);
+        LinearLayout.LayoutParams er3 = new LinearLayout.LayoutParams(0, dp(44), 1f);
         er3.setMargins(dp(5), 0, 0, 0);
         editRow.addView(clearBtn, er3);
 
@@ -274,8 +274,8 @@ public final class OverlayService extends Service {
         settings.setOrientation(LinearLayout.HORIZONTAL);
 
         intervalInput = input(
-                prefs.getString("interval_ms", "20"),
-                "间隔 ms",
+                prefs.getString("interval_ms", "1"),
+                "周期 ms",
                 true);
 
         cyclesInput = input(
@@ -283,15 +283,31 @@ public final class OverlayService extends Service {
                 "次数 0=∞",
                 false);
 
-        settings.addView(intervalInput, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        settings.addView(intervalInput, new LinearLayout.LayoutParams(0, dp(46), 1f));
 
-        LinearLayout.LayoutParams sr2 = new LinearLayout.LayoutParams(0, dp(42), 1f);
+        LinearLayout.LayoutParams sr2 = new LinearLayout.LayoutParams(0, dp(46), 1f);
         sr2.setMargins(dp(5), 0, 0, 0);
         settings.addView(cyclesInput, sr2);
 
-        LinearLayout.LayoutParams settingsLp = new LinearLayout.LayoutParams(-1, dp(42));
+        LinearLayout.LayoutParams settingsLp = new LinearLayout.LayoutParams(-1, dp(46));
         settingsLp.setMargins(0, dp(6), 0, 0);
         body.addView(settings, settingsLp);
+
+        LinearLayout presets = new LinearLayout(this);
+        presets.setOrientation(LinearLayout.HORIZONTAL);
+        String[] presetValues = {"1 ms 极速", "5 ms", "10 ms"};
+        for (int i = 0; i < presetValues.length; i++) {
+            final String value = i == 0 ? "1" : (i == 1 ? "5" : "10");
+            TextView preset = button(presetValues[i]);
+            preset.setTextColor(i == 0 ? Color.rgb(139, 222, 255) : Color.WHITE);
+            preset.setOnClickListener(v -> intervalInput.setText(value));
+            LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(0, dp(38), 1f);
+            if (i > 0) pp.setMargins(dp(6), 0, 0, 0);
+            presets.addView(preset, pp);
+        }
+        LinearLayout.LayoutParams presetLp = new LinearLayout.LayoutParams(-1, dp(38));
+        presetLp.setMargins(0, dp(6), 0, 0);
+        body.addView(presets, presetLp);
 
         LinearLayout runRow = new LinearLayout(this);
         runRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -302,20 +318,21 @@ public final class OverlayService extends Service {
         startBtn.setBackground(bg(Color.rgb(24, 105, 225), 13));
         stopBtn.setBackground(bg(Color.rgb(75, 82, 98), 13));
 
-        runRow.addView(startBtn, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        runRow.addView(startBtn, new LinearLayout.LayoutParams(0, dp(48), 1f));
 
-        LinearLayout.LayoutParams rr2 = new LinearLayout.LayoutParams(0, dp(42), 1f);
+        LinearLayout.LayoutParams rr2 = new LinearLayout.LayoutParams(0, dp(48), 1f);
         rr2.setMargins(dp(5), 0, 0, 0);
         runRow.addView(stopBtn, rr2);
 
-        LinearLayout.LayoutParams runLp = new LinearLayout.LayoutParams(-1, dp(42));
+        LinearLayout.LayoutParams runLp = new LinearLayout.LayoutParams(-1, dp(48));
         runLp.setMargins(0, dp(6), 0, 0);
         body.addView(runRow, runLp);
 
         forceBtn = button("强制结束");
-        forceBtn.setBackground(bg(Color.rgb(128, 44, 55), 13));
+        forceBtn.setTextSize(14.5f);
+        forceBtn.setBackground(bg(Color.rgb(186, 42, 55), 14));
 
-        LinearLayout.LayoutParams forceLp = new LinearLayout.LayoutParams(-1, dp(38));
+        LinearLayout.LayoutParams forceLp = new LinearLayout.LayoutParams(-1, dp(48));
         forceLp.setMargins(0, dp(6), 0, 0);
         body.addView(forceBtn, forceLp);
 
@@ -328,7 +345,7 @@ public final class OverlayService extends Service {
                 : WindowManager.LayoutParams.TYPE_PHONE;
 
         panelLp = new WindowManager.LayoutParams(
-                dp(258),
+                dp(320),
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 type,
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
@@ -586,7 +603,7 @@ public final class OverlayService extends Service {
             return;
         }
 
-        final double intervalMs = Math.max(0.0, parseDouble(intervalInput, 20.0));
+        final double intervalMs = Math.max(0.0, parseDouble(intervalInput, 1.0));
         final long cycles = Math.max(0L, parseLong(cyclesInput, 0L));
 
         prefs.edit()
@@ -621,9 +638,9 @@ public final class OverlayService extends Service {
 
             main.post(() -> {
                 if (ok) {
-                    statusText.setText(intervalMs <= 0
-                            ? "引擎：运行中 · 极速安全档"
-                            : "引擎：运行中 · " + intervalMs + " ms");
+                    statusText.setText("状态  ·  运行中 / 目标周期 "
+                            + String.format(Locale.US, "%.3f ms",
+                                    intervalMs <= 0.0 ? 1.0 : Math.max(1.0, intervalMs)));
                 } else {
                     setRunningUi(false);
                     statusText.setText("引擎：启动失败");
@@ -633,14 +650,14 @@ public final class OverlayService extends Service {
     }
 
     private void stopClicking() {
-        statusText.setText("引擎：停止中…");
+        statusText.setText("状态  ·  正在停止…");
 
         try { engine.stop(); } catch (Throwable ignored) {}
 
         main.postDelayed(() -> {
             NativeTouchEngine.hardStop(this);
             setRunningUi(false);
-            statusText.setText("引擎：已停止");
+            statusText.setText("状态  ·  已停止");
         }, 250L);
     }
 

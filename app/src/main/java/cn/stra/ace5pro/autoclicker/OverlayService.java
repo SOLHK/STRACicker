@@ -46,6 +46,10 @@ public final class OverlayService extends Service {
     private SharedPreferences prefs;
     private NativeTouchEngine engine;
 
+    private final RunGate gate = new RunGate();
+    private OverlayPanel panelUi;
+    private android.content.Context uiContext;
+    private boolean destroyed;
     private LinearLayout panel;
     private LinearLayout body;
     private LinearLayout header;
@@ -76,7 +80,7 @@ public final class OverlayService extends Service {
         @Override
         public void run() {
             updateBeijingClock();
-            main.postDelayed(this, 250L);
+            main.postDelayed(this, 1000L);
         }
     };
 
@@ -108,7 +112,7 @@ public final class OverlayService extends Service {
             forceStopEverything(false);
             stopSelf();
         }
-        return START_STICKY;
+        return START_NOT_STICKY;
     }
 
     private void startForegroundNow() {
@@ -191,7 +195,7 @@ public final class OverlayService extends Service {
     }
 
     private EditText input(String value, String hint, boolean decimal) {
-        EditText e = new EditText(this);
+        EditText e = new com.google.android.material.textfield.TextInputEditText(uiContext);
         e.setText(value);
         e.setHint(hint);
         e.setSingleLine(true);
@@ -235,7 +239,8 @@ public final class OverlayService extends Service {
         panelLp.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
         try { wm.updateViewLayout(panel, panelLp); } catch (Throwable ignored) {}
         target.requestFocus();
-        target.postDelayed(() -> {
+        main.postDelayed(() -> {
+            if (destroyed || !panelInputFocusMode || !target.hasFocus()) return;
             InputMethodManager imm =
                     (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
             if (imm != null) imm.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT);
@@ -273,155 +278,17 @@ public final class OverlayService extends Service {
     }
 
     private void createPanel() {
-        panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(15), dp(14), dp(15), dp(15));
-        panel.setBackground(glassBg());
-
-        header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-
-        titleText = text("STRA  ·  点击控制", 16, Color.WHITE);
-        titleText.setTypeface(null, 1);
-        titleText.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        titleText.setPadding(dp(3), 0, 0, 0);
-
-        collapseBtn = button("⌄");
-        TextView closeBtn = button("×");
-
-        header.addView(titleText, new LinearLayout.LayoutParams(0, dp(42), 1f));
-
-        LinearLayout.LayoutParams h1 = new LinearLayout.LayoutParams(dp(42), dp(42));
-        h1.setMargins(dp(5), 0, 0, 0);
-        header.addView(collapseBtn, h1);
-
-        LinearLayout.LayoutParams h2 = new LinearLayout.LayoutParams(dp(42), dp(42));
-        h2.setMargins(dp(5), 0, 0, 0);
-        header.addView(closeBtn, h2);
-
-        panel.addView(header);
-
-        beijingClock = text("北京时间  --:--:--", 14, Color.WHITE);
-        clockView = beijingClock;
-        beijingClock.setTypeface(null, 1);
-        beijingClock.setGravity(Gravity.CENTER_VERTICAL);
-        beijingClock.setPadding(dp(4), 0, dp(4), 0);
-        beijingClock.setBackground(bg(Color.rgb(53, 89, 163), 20));
-
-        LinearLayout.LayoutParams clockLp = new LinearLayout.LayoutParams(-1, dp(46));
-        clockLp.setMargins(0, dp(8), 0, 0);
-        panel.addView(beijingClock, clockLp);
-
-        body = new LinearLayout(this);
-        body.setOrientation(LinearLayout.VERTICAL);
-
-        statusText = text("正在检测触摸引擎…", 12.5f, Color.rgb(196, 210, 231));
-        statusText.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        statusText.setPadding(dp(4), 0, dp(4), 0);
-        body.addView(statusText, new LinearLayout.LayoutParams(-1, dp(34)));
-
-        pointText = text("0 个点位", 12.5f, Color.rgb(168, 199, 255));
-        pointText.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        pointText.setPadding(dp(4), 0, dp(4), 0);
-        body.addView(pointText, new LinearLayout.LayoutParams(-1, dp(28)));
-
-        LinearLayout editRow = new LinearLayout(this);
-        editRow.setOrientation(LinearLayout.HORIZONTAL);
-
-        TextView pickBtn = button("＋ 点位");
-        deleteBtn = button("删除");
-        TextView clearBtn = button("清空");
-
-        editRow.addView(pickBtn, new LinearLayout.LayoutParams(0, dp(44), 1f));
-
-        LinearLayout.LayoutParams er2 = new LinearLayout.LayoutParams(0, dp(44), 1f);
-        er2.setMargins(dp(5), 0, 0, 0);
-        editRow.addView(deleteBtn, er2);
-
-        LinearLayout.LayoutParams er3 = new LinearLayout.LayoutParams(0, dp(44), 1f);
-        er3.setMargins(dp(5), 0, 0, 0);
-        editRow.addView(clearBtn, er3);
-
-        body.addView(editRow);
-
-        LinearLayout settings = new LinearLayout(this);
-        settings.setOrientation(LinearLayout.HORIZONTAL);
-
-        intervalInput = input(
-                prefs.getString("interval_ms", "0.5"),
-                "周期 ms",
-                true);
-
-        cyclesInput = input(
-                String.valueOf(prefs.getLong("cycles", 0L)),
-                "次数 0=∞",
-                false);
-
-        settings.addView(intervalInput, new LinearLayout.LayoutParams(0, dp(46), 1f));
-
-        LinearLayout.LayoutParams sr2 = new LinearLayout.LayoutParams(0, dp(46), 1f);
-        sr2.setMargins(dp(5), 0, 0, 0);
-        settings.addView(cyclesInput, sr2);
-
-        LinearLayout.LayoutParams settingsLp = new LinearLayout.LayoutParams(-1, dp(46));
-        settingsLp.setMargins(0, dp(6), 0, 0);
-        body.addView(settings, settingsLp);
-
-        LinearLayout presets = new LinearLayout(this);
-        presets.setOrientation(LinearLayout.HORIZONTAL);
-        String[] presetValues = {"0.5 ms", "1 ms", "5 ms", "10 ms"};
-        String[] presetIntervals = {"0.5", "1", "5", "10"};
-        for (int i = 0; i < presetValues.length; i++) {
-            final String value = presetIntervals[i];
-            TextView preset = button(presetValues[i]);
-            preset.setTextColor(i == 0 ? Color.rgb(207, 223, 255) : Color.WHITE);
-            if (i == 0) preset.setBackground(bg(Color.rgb(48, 77, 139), 18));
-            preset.setOnClickListener(v -> intervalInput.setText(value));
-            LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(0, dp(38), 1f);
-            if (i > 0) pp.setMargins(dp(6), 0, 0, 0);
-            presets.addView(preset, pp);
-        }
-        LinearLayout.LayoutParams presetLp = new LinearLayout.LayoutParams(-1, dp(38));
-        presetLp.setMargins(0, dp(6), 0, 0);
-        body.addView(presets, presetLp);
-
-        LinearLayout runRow = new LinearLayout(this);
-        runRow.setOrientation(LinearLayout.HORIZONTAL);
-
-        startBtn = button("▶ 开始");
-        stopBtn = button("■ 停止");
-
-        startBtn.setBackground(bg(Color.rgb(54, 103, 207), 20));
-        stopBtn.setBackground(bg(Color.rgb(73, 63, 75), 20));
-
-        runRow.addView(startBtn, new LinearLayout.LayoutParams(0, dp(48), 1f));
-
-        LinearLayout.LayoutParams rr2 = new LinearLayout.LayoutParams(0, dp(48), 1f);
-        rr2.setMargins(dp(5), 0, 0, 0);
-        runRow.addView(stopBtn, rr2);
-
-        LinearLayout.LayoutParams runLp = new LinearLayout.LayoutParams(-1, dp(48));
-        runLp.setMargins(0, dp(6), 0, 0);
-        body.addView(runRow, runLp);
-
-        forceBtn = button("强制结束");
-        forceBtn.setTextSize(14.5f);
-        forceBtn.setBackground(bg(Color.rgb(143, 47, 61), 20));
-
-        LinearLayout.LayoutParams forceLp = new LinearLayout.LayoutParams(-1, dp(48));
-        forceLp.setMargins(0, dp(6), 0, 0);
-        body.addView(forceBtn, forceLp);
-
-        LinearLayout.LayoutParams bodyLp = new LinearLayout.LayoutParams(-1, -2);
-        bodyLp.setMargins(0, dp(2), 0, 0);
-        panel.addView(body, bodyLp);
-
-        miniIcon = text("S", 20, Color.WHITE);
-        miniIcon.setTypeface(null, 1);
-        miniIcon.setBackground(bg(Color.rgb(24, 105, 225), 99));
-        miniIcon.setVisibility(View.GONE);
-        panel.addView(miniIcon, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        uiContext = new android.view.ContextThemeWrapper(this, R.style.Theme_STRA_Overlay);
+        intervalInput = input(prefs.getString("interval_ms", "0.5"), "", true);
+        cyclesInput = input(String.valueOf(prefs.getLong("cycles", 0L)), "", false);
+        panelUi = new OverlayPanel(uiContext, intervalInput, cyclesInput);
+        panel = panelUi;
+        header = panelUi.header; body = panelUi.body;
+        titleText = panelUi.title; beijingClock = panelUi.clock; clockView = beijingClock;
+        statusText = panelUi.status; pointText = panelUi.pointCount;
+        miniIcon = panelUi.mini; collapseBtn = panelUi.collapse;
+        deleteBtn = panelUi.delete; startBtn = panelUi.start; stopBtn = panelUi.stop; forceBtn = panelUi.emergency;
+        TextView closeBtn = panelUi.close, pickBtn = panelUi.add, clearBtn = panelUi.clear;
 
         int type = Build.VERSION.SDK_INT >= 26
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -477,10 +344,8 @@ public final class OverlayService extends Service {
             if (runningUi || engine.isRunning()) return;
 
             deleteMode = !deleteMode;
-            deleteBtn.setText(deleteMode ? "完成" : "删除");
-            deleteBtn.setBackground(deleteMode
-                    ? bg(Color.rgb(143, 55, 66), 13)
-                    : bg(Color.argb(225, 40, 47, 62), 13));
+            deleteBtn.setText(deleteMode ? "完成" : "编辑");
+
 
             refreshMarkers();
             refreshPointCount();
@@ -494,38 +359,39 @@ public final class OverlayService extends Service {
         startBtn.setOnClickListener(v -> startClicking());
         stopBtn.setOnClickListener(v -> stopClicking());
         forceBtn.setOnClickListener(v -> forceStopEverything(true));
+        panelUi.busy(false, false);
     }
 
     private void minimizePanel() {
-        if (panelInputFocusMode) hidePanelInput();
-        header.setVisibility(View.GONE);
-        clockView.setVisibility(View.GONE);
-        body.setVisibility(View.GONE);
-        miniIcon.setVisibility(View.VISIBLE);
-        panel.setPadding(0, 0, 0, 0);
-        panelLp.width = dp(48);
-        panelLp.height = dp(48);
-        try { wm.updateViewLayout(panel, panelLp); } catch (Throwable ignored) {}
+        hidePanelInput();
+        panelInputFocusMode = false;
+        panelLp.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        panelLp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
+        panelUi.setCollapsed(true);
+        panelLp.width = dp(48); panelLp.height = dp(48);
+        clampPanel();
     }
 
     private void expandPanel() {
-        miniIcon.setVisibility(View.GONE);
-        panel.setPadding(dp(15), dp(14), dp(15), dp(15));
-        header.setVisibility(View.VISIBLE);
-        clockView.setVisibility(View.VISIBLE);
-        body.setVisibility(View.VISIBLE);
-        panelLp.width = Math.min(dp(350), getResources().getDisplayMetrics().widthPixels - dp(24));
+        if (destroyed) return;
+        panelUi.setCollapsed(false);
+        panelLp.width = Math.min(dp(352), getResources().getDisplayMetrics().widthPixels - dp(24));
         panelLp.height = WindowManager.LayoutParams.WRAP_CONTENT;
-        try { wm.updateViewLayout(panel, panelLp); } catch (Throwable ignored) {}
+        panel.measure(View.MeasureSpec.makeMeasureSpec(panelLp.width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        clampPanel();
+    }
+
+    private void clampPanel() {
+        Point size = new Point(); wm.getDefaultDisplay().getRealSize(size);
+        int height = panelLp.height > 0 ? panelLp.height : panel.getMeasuredHeight();
+        panelLp.x = Math.max(0, Math.min(panelLp.x, size.x - panelLp.width));
+        panelLp.y = Math.max(dp(24), Math.min(panelLp.y, size.y - height - dp(24)));
+        if (!destroyed) try { wm.updateViewLayout(panel, panelLp); } catch (IllegalArgumentException ignored) {}
     }
 
     private void onCompactIconTap() {
-        if (runningUi || engine.isRunning()) {
-            stopClicking();
-            main.postDelayed(this::expandPanel, 300L);
-        } else {
-            expandPanel();
-        }
+        if (gate.state() != RunGate.State.IDLE || engine.isRunning()) requestStop(this::expandPanel);
+        else expandPanel();
     }
 
     private void updateBeijingClock() {
@@ -534,23 +400,18 @@ public final class OverlayService extends Service {
         long now = BeijingTimeManager.nowMs(this);
         String time = timeFmt.format(new Date(now));
 
-        if (BeijingTimeManager.isSynced(this)) {
-            beijingClock.setText("北京时间  " + time + "   ✓");
-            beijingClock.setTextColor(Color.rgb(131, 205, 255));
-        } else if (BeijingTimeManager.isSyncing()) {
-            beijingClock.setText("北京时间  " + time + "   同步中");
-            beijingClock.setTextColor(Color.rgb(255, 205, 114));
-        } else {
-            beijingClock.setText("北京时间  " + time + "   未校时");
-            beijingClock.setTextColor(Color.rgb(255, 174, 119));
-        }
+        beijingClock.setText(time);
+        panelUi.clockStatus.setText("北京时间\n" + (BeijingTimeManager.isSynced(this) ? "已校时" : BeijingTimeManager.isSyncing() ? "校时中" : "系统时间"));
     }
 
     private void probeEngine() {
-        new Thread(() -> {
-            boolean ok = TouchDeviceDetector.hasRoot() && engine.probeSupport();
-            main.post(() -> statusText.setText(ok ? "引擎：uinput 可用 ✓" : "引擎：uinput 不可用"));
-        }, "stra-probe").start();
+        NativeTouchEngine.CONTROL.execute(() -> {
+            boolean ok = engine.probeSupport();
+            main.post(() -> {
+                if (!destroyed && gate.state() == RunGate.State.IDLE)
+                    statusText.setText(ok ? "准备就绪 · 添加点位后开始" : "请检查 Root 授权");
+            });
+        });
     }
 
     private void openPickOverlay() {
@@ -720,109 +581,70 @@ public final class OverlayService extends Service {
     }
 
     private void startClicking() {
-        if (runningUi || engine.isRunning()) return;
-
-        if (points.isEmpty()) {
-            Toast.makeText(this, "请先添加点位", Toast.LENGTH_SHORT).show();
-            return;
+        if (gate.state() != RunGate.State.IDLE) return;
+        if (points.isEmpty()) { Toast.makeText(this,"请先添加点位",Toast.LENGTH_SHORT).show(); return; }
+        final double intervalMs;
+        final long cycles;
+        try {
+            intervalMs = Double.parseDouble(intervalInput.getText().toString().trim());
+            cycles = Long.parseLong(cyclesInput.getText().toString().trim());
+            if (!Double.isFinite(intervalMs) || intervalMs < .5 || intervalMs > 2000 || cycles < 0) throw new IllegalArgumentException();
+        } catch (IllegalArgumentException e) {
+            statusText.setText("周期为 0.5–2000 毫秒；轮数为非负整数"); return;
         }
-
-        final double intervalMs = Math.max(0.0, parseDouble(intervalInput, 0.5));
-        final long cycles = Math.max(0L, parseLong(cyclesInput, 0L));
-
-        prefs.edit()
-                .putString("interval_ms", String.valueOf(intervalMs))
-                .putLong("cycles", cycles)
-                .apply();
-
-        deleteMode = false;
-        deleteBtn.setText("删除");
-        deleteBtn.setBackground(bg(Color.argb(225, 40, 47, 62), 13));
-
-        setRunningUi(true);
-        statusText.setText("引擎：启动中…");
-
-        final List<TapPoint> target = collectPoints();
-
-        new Thread(() -> {
-            if (!engine.probeSupport()) {
-                main.post(() -> {
-                    setRunningUi(false);
-                    statusText.setText("引擎：uinput 不可用");
-                    Toast.makeText(this, "uinput 不可用，未启动", Toast.LENGTH_LONG).show();
-                });
-                return;
-            }
-
-            boolean ok = engine.start(
-                    target,
-                    intervalMs,
-                    cycles,
-                    message -> main.post(() -> onFinished(message)));
-
+        final long token = gate.begin();
+        if (token < 0) return;
+        hidePanelInput();
+        prefs.edit().putString("interval_ms",String.valueOf(intervalMs)).putLong("cycles",cycles).apply();
+        deleteMode=false; deleteBtn.setText("编辑");
+        final List<TapPoint> target=collectPoints();
+        setRunningUi(true); statusText.setText("正在启动…");
+        NativeTouchEngine.CONTROL.execute(() -> {
+            if (!gate.current(token)) return;
+            boolean ok=engine.start(target,intervalMs,cycles,message -> main.post(() -> {
+                if (gate.finish(token) && !destroyed) { setRunningUi(false); statusText.setText(message); }
+            }));
+            if (!gate.current(token)) { engine.stopBlocking(); return; }
             main.post(() -> {
-                if (ok) {
-                    statusText.setText("状态  ·  运行中 / 目标周期 "
-                            + String.format(Locale.US, "%.3f ms",
-                                    intervalMs <= 0.0 ? 0.5 : Math.max(0.5, intervalMs)));
-                } else {
-                    setRunningUi(false);
-                    statusText.setText("引擎：启动失败");
-                }
+                if (destroyed) return;
+                if (ok && gate.started(token)) statusText.setText("运行中 · " + intervalMs + " ms / 次");
+                else if (!ok && gate.finish(token)) { setRunningUi(false); statusText.setText("启动失败，请检查 Root 权限"); }
             });
-        }, "stra-start").start();
+        });
     }
 
-    private void stopClicking() {
-        statusText.setText("状态  ·  正在停止…");
+    private void stopClicking() { requestStop(null); }
 
-        try { engine.stop(); } catch (Throwable ignored) {}
-
-        main.postDelayed(() -> {
-            NativeTouchEngine.hardStop(this);
-            setRunningUi(false);
-            statusText.setText("状态  ·  已停止");
-        }, 250L);
+    private void requestStop(Runnable afterStop) {
+        final long token=gate.stop();
+        if (token < 0) return;
+        NativeTouchEngine.signalStopFile(this);
+        setRunningUi(true); statusText.setText("正在停止…");
+        NativeTouchEngine.CONTROL.execute(() -> {
+            engine.stopBlocking();
+            main.post(() -> {
+                if (!destroyed && gate.stopped(token)) {
+                    setRunningUi(false); statusText.setText("已停止 · 可调整点位和参数");
+                    if (afterStop != null) afterStop.run();
+                }
+            });
+        });
     }
 
     private void forceStopEverything(boolean toast) {
-        try { engine.stop(); } catch (Throwable ignored) {}
-        NativeTouchEngine.hardStop(this);
-
-        setRunningUi(false);
-
-        if (statusText != null) statusText.setText("引擎：已强制结束");
-        if (toast) Toast.makeText(this, "已强制结束连点", Toast.LENGTH_SHORT).show();
+        requestStop(null);
+        if (toast) Toast.makeText(this,"正在结束点击任务",Toast.LENGTH_SHORT).show();
     }
 
-    private void onFinished(String message) {
-        setRunningUi(false);
-        if (statusText != null) statusText.setText("引擎：" + message);
-    }
-
-    private void setRunningUi(boolean running) {
-        runningUi = running;
-
-        titleText.setText(running ? "STRA · 运行中" : "STRA · 编辑");
-        startBtn.setText(running ? "运行中" : "▶ 开始");
-        startBtn.setAlpha(running ? 0.55f : 1f);
-
-        stopBtn.setBackground(bg(
-                running ? Color.rgb(187, 58, 70) : Color.rgb(75, 82, 98),
-                13));
-
-        for (PointView p : points) {
-            if (running) {
-                p.lp.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
-            } else {
-                p.lp.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
-            }
-
-            try { wm.updateViewLayout(p.view, p.lp); } catch (Throwable ignored) {}
+    private void setRunningUi(boolean active) {
+        runningUi=active;
+        panelUi.busy(active,gate.state()==RunGate.State.STOPPING);
+        for (PointView p:points) {
+            if (active) p.lp.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+            else p.lp.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+            try { wm.updateViewLayout(p.view,p.lp); } catch (IllegalArgumentException ignored) {}
         }
-
-        refreshMarkers();
-        refreshPointCount();
+        refreshMarkers(); refreshPointCount();
     }
 
     private void savePoints() {
@@ -855,8 +677,11 @@ public final class OverlayService extends Service {
 
     @Override
     public void onDestroy() {
-        main.removeCallbacks(clockTicker);
-        forceStopEverything(false);
+        destroyed = true;
+        gate.close();
+        NativeTouchEngine.signalStopFile(this);
+        main.removeCallbacksAndMessages(null);
+        NativeTouchEngine.CONTROL.execute(() -> engine.stopBlocking());
         removePickOverlay();
 
         try { if (panel != null) wm.removeView(panel); } catch (Throwable ignored) {}
@@ -894,7 +719,7 @@ public final class OverlayService extends Service {
                 panelLp.x = startX + Math.round(e.getRawX() - downX);
                 panelLp.y = startY + Math.round(e.getRawY() - downY);
 
-                try { wm.updateViewLayout(panel, panelLp); } catch (Throwable ignored) {}
+                clampPanel();
                 return true;
             }
 

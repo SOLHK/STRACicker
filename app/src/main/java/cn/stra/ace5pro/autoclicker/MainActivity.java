@@ -46,7 +46,6 @@ public final class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 33) requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 10);
         buildUi();
         BeijingTimeManager.ensureSync(this);
-        refresh();
     }
 
     @Override protected void onResume() { super.onResume(); refresh(); handler.post(ticker); }
@@ -164,7 +163,7 @@ public final class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true); scroll.setClipToPadding(false); scroll.addView(page); setContentView(scroll);
     }
 
-    private View divider() { View v = new View(this); v.setBackgroundColor(outline); LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(1)); p.leftMargin = dp(38); return v; }
+    private View divider() { View v = new View(this); v.setBackgroundColor(outline); LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(1)); p.leftMargin = dp(38); v.setLayoutParams(p); return v; }
 
     private LinearLayout statusRow(String name, String initial) {
         LinearLayout row = new LinearLayout(this); row.setGravity(Gravity.CENTER_VERTICAL); row.setPadding(0, dp(10), 0, dp(10));
@@ -218,13 +217,14 @@ public final class MainActivity extends Activity {
 
     private void refresh() {
         if (overlayState != null) setState(overlayState, Settings.canDrawOverlays(this) ? "已授权" : "未授权", Settings.canDrawOverlays(this));
-        new Thread(() -> {
+        NativeTouchEngine.CONTROL.execute(() -> {
+            if (isFinishing() || isDestroyed()) return;
             boolean root = TouchDeviceDetector.hasRoot();
             runOnUiThread(() -> setState(rootState, root ? "已授权" : "未授权", root));
             if (!root) { runOnUiThread(() -> setState(engineState, "等待 Root", false)); return; }
             boolean ok = new NativeTouchEngine(this).probeSupport();
             runOnUiThread(() -> setState(engineState, ok ? "uinput 可用" : "uinput 不可用", ok));
-        }, "stra-status").start();
+        });
         BeijingTimeManager.ensureSync(this);
     }
 

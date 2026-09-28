@@ -26,6 +26,8 @@ public final class BeijingTimeManager {
     private static volatile String source = "未联网校时";
     private static volatile boolean synced = false;
     private static volatile boolean loaded = false;
+    private static volatile long nextAttemptElapsed;
+    private static volatile long retryDelay = 30_000L;
 
     private BeijingTimeManager() {}
 
@@ -38,7 +40,7 @@ public final class BeijingTimeManager {
                 || nowElapsed < lastSyncElapsedMs
                 || nowElapsed - lastSyncElapsedMs >= RESYNC_AFTER_MS;
 
-        if (!stale || !SYNCING.compareAndSet(false, true)) return;
+        if (!stale || nowElapsed < nextAttemptElapsed || !SYNCING.compareAndSet(false, true)) return;
 
         Context app = context.getApplicationContext();
         new Thread(() -> {
@@ -48,6 +50,8 @@ public final class BeijingTimeManager {
                     apply(app, result);
                 }
             } finally {
+                nextAttemptElapsed = SystemClock.elapsedRealtime() + retryDelay;
+                retryDelay = Math.min(300_000L, retryDelay * 2L);
                 SYNCING.set(false);
             }
         }, "stra-beijing-time-sync").start();
@@ -69,6 +73,8 @@ public final class BeijingTimeManager {
                     apply(app, result);
                 }
             } finally {
+                nextAttemptElapsed = SystemClock.elapsedRealtime() + retryDelay;
+                retryDelay = Math.min(300_000L, retryDelay * 2L);
                 SYNCING.set(false);
                 if (onDone != null) onDone.run();
             }
@@ -125,7 +131,8 @@ public final class BeijingTimeManager {
         long savedSyncElapsed = p.getLong("sync_elapsed", 0L);
 
         long nowElapsed = SystemClock.elapsedRealtime();
-        boolean sameBoot = savedElapsed > 0L && nowElapsed >= savedElapsed;
+        int boot = android.provider.Settings.Global.getInt(context.getContentResolver(), android.provider.Settings.Global.BOOT_COUNT, -1);
+        boolean sameBoot = boot >= 0 && boot == p.getInt("boot_count", -2) && savedElapsed > 0L && nowElapsed >= savedElapsed;
 
         if (sameBoot) {
             baseEpochMs = savedEpoch;
@@ -149,9 +156,11 @@ public final class BeijingTimeManager {
         lastRttMs = r.rttMs;
         source = r.source;
         synced = true;
+        retryDelay = 30_000L;
 
         context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
                 .edit()
+                .putInt("boot_count", android.provider.Settings.Global.getInt(context.getContentResolver(), android.provider.Settings.Global.BOOT_COUNT, -1))
                 .putLong("base_epoch", baseEpochMs)
                 .putLong("base_elapsed", baseElapsedMs)
                 .putLong("sync_elapsed", lastSyncElapsedMs)

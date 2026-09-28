@@ -1,0 +1,9 @@
+<resources>
+    <style name="Theme.STRA.Overlay" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">#315DA8</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondaryContainer">#E8EDF5</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+</resources>

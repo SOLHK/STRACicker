@@ -268,7 +268,9 @@ int main(int argc, char **argv) {
         return 6;
     }
 
-    unlink(stop_path);
+    /* Java clears the old stop file BEFORE launching. Preserve cancellation
+       arriving while uinput is being created. */
+    if (stop_requested(stop_path)) { destroy_uinput(fd); free(xy); return 0; }
     write_pid_file();
     printf("READY\n");
     fflush(stdout);

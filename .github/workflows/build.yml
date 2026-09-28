@@ -53,7 +53,7 @@ jobs:
           STRA_SIGNING_KEY_ALIAS: stra-release
         run: |
           if [ -s "$STRA_SIGNING_KEYSTORE_PATH" ]; then
-            gradle :app:assembleRelease --stacktrace
+            gradle :app:testDebugUnitTest :app:assembleRelease --stacktrace
             echo "apk_path=app/build/outputs/apk/release/app-release.apk" >> "$GITHUB_OUTPUT"
           else
             gradle :app:assembleDebug --stacktrace
@@ -61,6 +61,6 @@ jobs:
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: STRACicker-v2.1.1-apk
+          name: STRACicker-v2.2.0-apk
           path: ${{ steps.build-apk.outputs.apk_path }}
 

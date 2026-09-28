@@ -17,13 +17,18 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class NativeTouchEngine {
-    private static final ExecutorService HARD_STOP_EXECUTOR =
-            Executors.newSingleThreadExecutor(r -> new Thread(r, "stra-hard-stop"));
+    static final ExecutorService CONTROL =
+            Executors.newSingleThreadExecutor(r -> new Thread(r, "stra-control"));
 
     public interface Listener {
         void onFinished(String message);
     }
 
+    private static final Object HELPER_LOCK = new Object();
+    private static volatile boolean helperPrepared;
+    private static volatile boolean helperRunning;
+    private static volatile long probeAt;
+    private static volatile boolean probeResult;
     private final Context context;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private Process process;
@@ -39,8 +44,10 @@ public final class NativeTouchEngine {
     }
 
     public boolean probeSupport() {
+        if (helperRunning) return true;
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (probeResult && now - probeAt < 60_000L) return true;
         if (!TouchDeviceDetector.hasRoot()) return false;
-
         Process p = null;
         try {
             String rootExec = prepareRootHelper();
@@ -61,7 +68,9 @@ public final class NativeTouchEngine {
                 return false;
             }
 
-            return p.exitValue() == 0 && line != null && line.contains("READY");
+            probeResult = p.exitValue() == 0 && line != null && line.contains("READY");
+            probeAt = android.os.SystemClock.elapsedRealtime();
+            return probeResult;
         } catch (Throwable t) {
             return false;
         } finally {
@@ -119,14 +128,16 @@ public final class NativeTouchEngine {
                     new BufferedReader(new InputStreamReader(process.getInputStream()));
             String ready = waitForLine(process, br, 3500L);
 
-            if (ready == null || !ready.contains("READY") || !process.isAlive()) {
+            if (ready == null || !ready.contains("READY")) {
                 try { process.destroyForcibly(); } catch (Throwable ignored) {}
+                hardStopBlocking(context);
                 process = null;
                 return false;
             }
 
-            running.set(true);
-
+            running.set(true); helperRunning = true;
+            probeResult = true; probeAt = android.os.SystemClock.elapsedRealtime();
+            final Process ownedProcess = process;
             final BufferedReader output = br;
             waiter = new Thread(() -> {
                 String end = "已停止";
@@ -137,11 +148,7 @@ public final class NativeTouchEngine {
                         if (!line.trim().isEmpty()) lastError = line.trim();
                     }
 
-                    Process local;
-                    synchronized (NativeTouchEngine.this) {
-                        local = process;
-                    }
-                    int exit = local == null ? 0 : local.waitFor();
+                    int exit = ownedProcess.waitFor();
 
                     if (exit != 0 && running.get()) {
                         end = lastError == null
@@ -150,11 +157,14 @@ public final class NativeTouchEngine {
                     }
                 } catch (Throwable ignored) {
                 } finally {
-                    running.set(false);
                     synchronized (NativeTouchEngine.this) {
-                        process = null;
-                        waiter = null;
+                        if (process == ownedProcess) {
+                            running.set(false); helperRunning = false;
+                            process = null;
+                            waiter = null;
+                        }
                     }
+                    try { output.close(); } catch (java.io.IOException ignored) {}
                     if (listener != null) listener.onFinished(end);
                 }
             }, "stra-uinput-waiter");
@@ -190,10 +200,28 @@ public final class NativeTouchEngine {
         }
     }
 
+    /** Only call on CONTROL, never the Android main thread. */
+    public void stopBlocking() {
+        final Process owned;
+        synchronized (this) { owned = process; }
+        stop();
+        if (owned != null) {
+            try {
+                if (!owned.waitFor(500, TimeUnit.MILLISECONDS)) {
+                    hardStopBlocking(context);
+                    if (!owned.waitFor(500, TimeUnit.MILLISECONDS)) owned.destroyForcibly();
+                }
+            } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        }
+        synchronized (this) {
+            if (process == owned) { process = null; running.set(false); helperRunning = false; }
+        }
+    }
+
     public static void hardStop(Context context) {
         Context app = context.getApplicationContext();
         signalStopFile(app);
-        HARD_STOP_EXECUTOR.execute(() -> {
+        CONTROL.execute(() -> {
             terminateRootHelper();
         });
     }
@@ -203,7 +231,7 @@ public final class NativeTouchEngine {
         terminateRootHelper();
     }
 
-    private static void signalStopFile(Context app) {
+    static void signalStopFile(Context app) {
         try {
             File stop = new File(app.getFilesDir(), "stra_uinput.stop");
             new FileOutputStream(stop, false).close();
@@ -225,19 +253,24 @@ public final class NativeTouchEngine {
     }
 
     private String prepareRootHelper() {
+        synchronized (HELPER_LOCK) {
+        if (helperPrepared) return "/data/local/tmp/stra_touch_ace5pro";
         try {
             String local = installHelper();
             if (local == null) return null;
 
             String rootExec = "/data/local/tmp/stra_touch_ace5pro";
-            String command = "cp " + shellQuote(local) + " " + rootExec
-                    + " && chmod 755 " + rootExec;
+            String command = "cp " + shellQuote(local) + " " + rootExec + ".new"
+                    + " && chmod 755 " + rootExec + ".new && mv -f " + rootExec + ".new " + rootExec;
 
             String out = TouchDeviceDetector.execRoot(command);
+            helperPrepared = out != null;
             return out == null ? null : rootExec;
         } catch (Throwable t) {
             return null;
         }
+    }
+
     }
 
     private String installHelper() {

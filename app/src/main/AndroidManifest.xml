@@ -31,6 +31,10 @@
         </activity>
 
         <activity
+            android:name=".ClickSettingsActivity"
+            android:exported="false"/>
+
+        <activity
             android:name=".SpeedTestActivity"
             android:exported="false"/>
 

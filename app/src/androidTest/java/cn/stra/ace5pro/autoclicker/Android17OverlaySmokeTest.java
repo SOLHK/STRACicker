@@ -37,6 +37,7 @@ public final class Android17OverlaySmokeTest {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
         context = InstrumentationRegistry.getInstrumentation().getTargetContext();
         device.executeShellCommand("appops set " + context.getPackageName() + " SYSTEM_ALERT_WINDOW allow");
+        device.executeShellCommand("pm grant " + context.getPackageName() + " android.permission.POST_NOTIFICATIONS");
         Intent launch = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
         assertNotNull(launch);
         launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
@@ -49,21 +50,30 @@ public final class Android17OverlaySmokeTest {
     }
 
     @Test public void overlayCanCollapseMoveExpandAndExportLogs() throws Exception {
+        UiObject2 settings = device.wait(Until.findObject(By.text("点击设置")), 5000);
+        assertNotNull("point and timing controls must live in app settings", settings);
+        settings.click();
+        assertNotNull(device.wait(Until.findObject(By.text("点击周期（毫秒）")), 5000));
+        assertNotNull(device.findObject(By.text("点击点位")));
+        device.pressBack();
         device.findObject(By.text("开启悬浮控制器")).click();
 
         UiObject2 collapse = device.wait(Until.findObject(By.text("收起")), 10000);
         assertNotNull("expanded overlay must show the collapse control", collapse);
+        assertNotNull(device.findObject(By.text("开始")));
+        assertNotNull(device.findObject(By.text("停止")));
+        assertNull("overlay must not expose point and timing controls", device.findObject(By.text("添加点位")));
         collapse.click();
 
         UiObject2 mini = device.wait(
-                Until.findObject(By.desc("轻点暂停并展开，拖动移动位置")), 5000);
+                Until.findObject(By.desc("轻点展开，拖动移动位置")), 5000);
         assertNotNull("collapsed overlay must remain visible as a draggable clock pill", mini);
         assertNotNull("collapsed overlay must keep the Beijing time visible",
                 mini.findObject(By.text(Pattern.compile("\\d{2}:\\d{2}:\\d{2}"))));
         Point before = mini.getVisibleCenter();
         mini.drag(new Point(before.x + 160, before.y + 180), 700);
         device.waitForIdle();
-        mini = device.findObject(By.desc("轻点暂停并展开，拖动移动位置"));
+        mini = device.findObject(By.desc("轻点展开，拖动移动位置"));
         Point after = mini.getVisibleCenter();
         assertNotEquals("compact overlay must move when dragged", before, after);
         mini.click();

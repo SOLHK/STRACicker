@@ -152,15 +152,21 @@ public final class MainActivity extends Activity {
         statusCard.addView(rootState); statusCard.addView(divider()); statusCard.addView(overlayState); statusCard.addView(divider()); statusCard.addView(engineState);
         page.addView(statusCard, new LinearLayout.LayoutParams(-1, -2));
 
-        LinearLayout start = action("开启悬浮控制器", "添加点位并开始点击", "↗", primary, primaryInk);
+        LinearLayout start = action("开启悬浮控制器", "悬浮控制器开始、停止并显示时间", "↗", primary, primaryInk);
         LinearLayout.LayoutParams startLp = new LinearLayout.LayoutParams(-1, dp(76)); startLp.topMargin = dp(18);
         page.addView(start, startLp); start.setOnClickListener(v -> startOverlay());
 
-        LinearLayout speed = tile("速度测试", "测量 CPS 与点击间隔", "↗");
-        LinearLayout.LayoutParams speedLp = new LinearLayout.LayoutParams(-1, dp(82));
-        speedLp.topMargin = dp(10);
-        page.addView(speed, speedLp);
+        LinearLayout tools = new LinearLayout(this);
+        LinearLayout speed = tile("速度测试", "测量点击间隔", "↗");
+        LinearLayout settings = tile("点击设置", "点位与运行参数", "⚙");
+        LinearLayout.LayoutParams toolItem = new LinearLayout.LayoutParams(0, dp(82), 1);
+        tools.addView(speed, toolItem);
+        LinearLayout.LayoutParams settingLp = new LinearLayout.LayoutParams(0, dp(82), 1); settingLp.leftMargin = dp(10);
+        tools.addView(settings, settingLp);
+        LinearLayout.LayoutParams toolsLp = new LinearLayout.LayoutParams(-1, dp(82)); toolsLp.topMargin = dp(10);
+        page.addView(tools, toolsLp);
         speed.setOnClickListener(v -> startActivity(new Intent(this, SpeedTestActivity.class)));
+        settings.setOnClickListener(v -> startActivity(new Intent(this, ClickSettingsActivity.class)));
 
         LinearLayout logs = action("导出诊断日志", "生成文本文件，方便发送排查", "↗", surface, primary);
         LinearLayout.LayoutParams logsLp = new LinearLayout.LayoutParams(-1, dp(66));

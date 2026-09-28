@@ -15,15 +15,10 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
-import android.view.KeyEvent;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewTreeObserver;
-import android.view.inputmethod.EditorInfo;
-import android.view.inputmethod.InputMethodManager;
 import android.view.WindowManager;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -50,7 +45,6 @@ public final class OverlayService extends Service {
     private android.content.Context uiContext;
     private boolean destroyed;
     private LinearLayout panel;
-    private LinearLayout body;
     private LinearLayout header;
     private View miniIcon;
     private TextView clockView;
@@ -60,18 +54,12 @@ public final class OverlayService extends Service {
     private TextView titleText;
     private TextView beijingClock;
     private TextView statusText;
-    private TextView pointText;
     private TextView collapseBtn;
-    private TextView deleteBtn;
     private TextView startBtn;
     private TextView stopBtn;
 
-    private EditText intervalInput;
-    private EditText cyclesInput;
 
-    private boolean deleteMode = false;
     private boolean runningUi = false;
-    private boolean panelInputFocusMode = false;
     private int markerSizePx;
 
     private final Runnable clockTicker = new Runnable() {
@@ -99,7 +87,6 @@ public final class OverlayService extends Service {
         createPanel();
         DiagnosticLog.record(this, "Overlay opened");
         restorePoints();
-        refreshPointCount();
         probeEngine();
 
         main.post(clockTicker);
@@ -107,8 +94,17 @@ public final class OverlayService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null) {
+            String action = intent.getAction();
+            if (ACTION_PICK_POINT.equals(action)) openPickOverlay();
+            else if (ACTION_RELOAD_POINTS.equals(action)) reloadPoints();
+        }
         return START_NOT_STICKY;
     }
+
+    static final String ACTION_POINT_ADDED = "cn.stra.ace5pro.autoclicker.POINT_ADDED";
+    static final String ACTION_PICK_POINT = "cn.stra.ace5pro.autoclicker.PICK_POINT";
+    static final String ACTION_RELOAD_POINTS = "cn.stra.ace5pro.autoclicker.RELOAD_POINTS";
 
     private void startForegroundNow() {
         final String id = "stra_ace5pro_clicker";
@@ -146,19 +142,6 @@ public final class OverlayService extends Service {
         return d;
     }
 
-    private GradientDrawable glassBg() {
-        GradientDrawable d = new GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                new int[]{
-                        Color.rgb(35, 39, 50),
-                        Color.rgb(28, 32, 42),
-                        Color.rgb(24, 28, 38)
-                });
-        d.setCornerRadius(dp(28));
-        d.setStroke(dp(1), Color.argb(35, 255, 255, 255));
-        return d;
-    }
-
     private TextView text(String value, float sp, int color) {
         TextView v = new TextView(this);
         v.setText(value);
@@ -168,109 +151,16 @@ public final class OverlayService extends Service {
         return v;
     }
 
-    private TextView button(String value) {
-        TextView v = text(value, 13, Color.WHITE);
-        v.setTypeface(null, 1);
-        v.setBackground(bg(Color.rgb(52, 58, 72), 18));
-        v.setPadding(dp(8), 0, dp(8), 0);
-        return v;
-    }
-
-    private EditText input(String value, String hint, boolean decimal) {
-        EditText e = new com.google.android.material.textfield.TextInputEditText(uiContext);
-        e.setText(value);
-        e.setHint(hint);
-        e.setSingleLine(true);
-        e.setFocusable(true);
-        e.setFocusableInTouchMode(true);
-        e.setShowSoftInputOnFocus(true);
-        e.setImeOptions(EditorInfo.IME_ACTION_DONE);
-        e.setTextSize(13.5f);
-        e.setTextColor(Color.WHITE);
-        e.setHintTextColor(Color.rgb(113, 125, 147));
-        e.setGravity(Gravity.CENTER);
-
-        int type = android.text.InputType.TYPE_CLASS_NUMBER;
-        if (decimal) type |= android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL;
-        e.setInputType(type);
-
-        e.setBackground(bg(Color.argb(225, 23, 29, 42), 12));
-        e.setPadding(dp(7), 0, dp(7), 0);
-        e.setOnTouchListener((v, event) -> {
-            if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                enablePanelInputFocus(e);
-            }
-            return false;
-        });
-        e.setOnEditorActionListener((v, actionId, event) -> {
-            if (actionId == EditorInfo.IME_ACTION_DONE
-                    || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
-                hidePanelInput();
-                return true;
-            }
-            return false;
-        });
-        return e;
-    }
-
-    private void enablePanelInputFocus(EditText target) {
-        if (panelLp == null || panel == null) return;
-        panelInputFocusMode = true;
-        panelLp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
-                | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE;
-        panelLp.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
-        try { wm.updateViewLayout(panel, panelLp); } catch (Throwable ignored) {}
-        target.requestFocus();
-        main.postDelayed(() -> {
-            if (destroyed || !panelInputFocusMode || !target.hasFocus()) return;
-            InputMethodManager imm =
-                    (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-            if (imm != null) imm.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT);
-        }, 120L);
-    }
-
-    private void hidePanelInput() {
-        View focused = panel == null ? null : panel.findFocus();
-        if (focused != null) {
-            InputMethodManager imm =
-                    (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-            if (imm != null) imm.hideSoftInputFromWindow(focused.getWindowToken(), 0);
-            focused.clearFocus();
-        }
-        main.postDelayed(this::disablePanelInputFocus, 250L);
-    }
-
-    private void disablePanelInputFocus() {
-        if (!panelInputFocusMode || panelLp == null || panel == null) return;
-        if (isKeyboardVisible()) return;
-        panelInputFocusMode = false;
-        panelLp.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
-        panelLp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
-                | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN;
-        try { wm.updateViewLayout(panel, panelLp); } catch (Throwable ignored) {}
-    }
-
-    private boolean isKeyboardVisible() {
-        if (panel == null || wm == null) return false;
-        Rect frame = new Rect();
-        panel.getWindowVisibleDisplayFrame(frame);
-        Point size = new Point();
-        wm.getDefaultDisplay().getRealSize(size);
-        return size.y - frame.bottom > dp(160);
-    }
-
     private void createPanel() {
         uiContext = new android.view.ContextThemeWrapper(this, R.style.Theme_STRA_Overlay);
-        intervalInput = input(prefs.getString("interval_ms", "0.5"), "", true);
-        cyclesInput = input(String.valueOf(prefs.getLong("cycles", 0L)), "", false);
-        panelUi = new OverlayPanel(uiContext, intervalInput, cyclesInput);
+        panelUi = new OverlayPanel(uiContext);
         panel = panelUi;
-        header = panelUi.header; body = panelUi.body;
+        header = panelUi.header;
         titleText = panelUi.title; beijingClock = panelUi.clock; clockView = beijingClock;
-        statusText = panelUi.status; pointText = panelUi.pointCount;
+        statusText = panelUi.status;
         miniIcon = panelUi.mini; collapseBtn = panelUi.collapse;
-        deleteBtn = panelUi.delete; startBtn = panelUi.start; stopBtn = panelUi.stop;
-        TextView closeBtn = panelUi.close, pickBtn = panelUi.add, clearBtn = panelUi.clear;
+        startBtn = panelUi.start; stopBtn = panelUi.stop;
+        TextView closeBtn = panelUi.close;
 
         int type = Build.VERSION.SDK_INT >= 26
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -295,15 +185,6 @@ public final class OverlayService extends Service {
         wm.addView(panel, panelLp);
         panel.post(this::clampPanel);
 
-        panel.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
-            if (panelInputFocusMode && !isKeyboardVisible()) {
-                main.postDelayed(this::disablePanelInputFocus, 300L);
-            }
-        });
-        panel.getViewTreeObserver().addOnWindowFocusChangeListener(hasFocus -> {
-            if (!hasFocus && panelInputFocusMode) main.post(this::disablePanelInputFocus);
-        });
-
         titleText.setOnTouchListener(new PanelDrag());
 
         collapseBtn.setOnClickListener(v -> minimizePanel());
@@ -315,38 +196,12 @@ public final class OverlayService extends Service {
             stopSelf();
         });
 
-        pickBtn.setOnClickListener(v -> {
-            if (runningUi || engine.isRunning()) {
-                Toast.makeText(this, "请先停止", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            openPickOverlay();
-        });
-
-        deleteBtn.setOnClickListener(v -> {
-            if (runningUi || engine.isRunning()) return;
-
-            deleteMode = !deleteMode;
-            deleteBtn.setText(deleteMode ? "完成" : "编辑");
-
-
-            refreshMarkers();
-            refreshPointCount();
-        });
-
-        clearBtn.setOnClickListener(v -> {
-            if (runningUi || engine.isRunning()) return;
-            clearPoints();
-        });
-
         startBtn.setOnClickListener(v -> startClicking());
         stopBtn.setOnClickListener(v -> stopClicking());
         panelUi.busy(false, false);
     }
 
     private void minimizePanel() {
-        hidePanelInput();
-        panelInputFocusMode = false;
         panelLp.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
         panelLp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
         panelUi.setCollapsed(true);
@@ -361,6 +216,7 @@ public final class OverlayService extends Service {
         panelLp.width = Math.min(dp(352), getResources().getDisplayMetrics().widthPixels - dp(24));
         panelLp.height = WindowManager.LayoutParams.WRAP_CONTENT;
         panel.measure(View.MeasureSpec.makeMeasureSpec(panelLp.width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        panelLp.height = panel.getMeasuredHeight();
         clampPanel();
         DiagnosticLog.record(this, "Overlay expanded");
     }
@@ -396,7 +252,7 @@ public final class OverlayService extends Service {
             main.post(() -> {
                 DiagnosticLog.record(this, "Root engine probe available=" + ok);
                 if (!destroyed && gate.state() == RunGate.State.IDLE)
-                    statusText.setText(ok ? "准备就绪 · 添加点位后开始" : "请检查 Root 授权");
+                    statusText.setText(ok ? "准备就绪 · 在应用内点击设置管理点位" : "请检查 Root 授权");
             });
         });
     }
@@ -442,6 +298,7 @@ public final class OverlayService extends Service {
 
                 removePickOverlay();
                 addPoint(x, y, true);
+                sendBroadcast(new Intent(ACTION_POINT_ADDED).setPackage(getPackageName()));
                 return true;
             }
             return true;
@@ -486,7 +343,6 @@ public final class OverlayService extends Service {
         wm.addView(marker, lp);
 
         refreshMarkers();
-        refreshPointCount();
 
         if (persist) savePoints();
     }
@@ -498,18 +354,6 @@ public final class OverlayService extends Service {
         points.remove(p);
 
         refreshMarkers();
-        refreshPointCount();
-        savePoints();
-    }
-
-    private void clearPoints() {
-        for (PointView p : new ArrayList<>(points)) {
-            try { wm.removeView(p.view); } catch (Throwable ignored) {}
-        }
-
-        points.clear();
-        refreshMarkers();
-        refreshPointCount();
         savePoints();
     }
 
@@ -517,25 +361,12 @@ public final class OverlayService extends Service {
         for (int i = 0; i < points.size(); i++) {
             PointView p = points.get(i);
 
-            p.view.setText(deleteMode ? "×" : String.valueOf(i + 1));
+            p.view.setText(String.valueOf(i + 1));
             p.view.setAlpha(runningUi ? 0.30f : 0.96f);
-            p.view.setBackground(deleteMode
-                    ? bg(Color.argb(235, 192, 54, 66), 99)
-                    : bg(Color.argb(228, 17, 120, 239), 99));
+            p.view.setBackground(bg(Color.argb(228, 17, 120, 239), 99));
         }
     }
 
-    private void refreshPointCount() {
-        if (pointText == null) return;
-
-        if (deleteMode) {
-            pointText.setText(points.size() + " 个点位 · 点红点删除");
-        } else if (runningUi) {
-            pointText.setText(points.size() + " 个点位 · 运行中");
-        } else {
-            pointText.setText(points.size() + " 个点位 · 可拖动调整");
-        }
-    }
 
     private List<TapPoint> collectPoints() {
         List<TapPoint> out = new ArrayList<>();
@@ -549,44 +380,27 @@ public final class OverlayService extends Service {
         return out;
     }
 
-    private double parseDouble(EditText e, double def) {
-        try {
-            String s = e.getText().toString().trim();
-            return s.isEmpty() ? def : Double.parseDouble(s);
-        } catch (Throwable ignored) {
-            return def;
-        }
-    }
-
-    private long parseLong(EditText e, long def) {
-        try {
-            String s = e.getText().toString().trim();
-            return s.isEmpty() ? def : Long.parseLong(s);
-        } catch (Throwable ignored) {
-            return def;
-        }
-    }
-
     private void startClicking() {
         if (gate.state() != RunGate.State.IDLE) return;
-        if (points.isEmpty()) { Toast.makeText(this,"请先添加点位",Toast.LENGTH_SHORT).show(); return; }
+        if (points.isEmpty()) { Toast.makeText(this,"请先到应用内的点击设置添加点位",Toast.LENGTH_SHORT).show(); return; }
         final double intervalMs;
         final long cycles;
         try {
-            intervalMs = Double.parseDouble(intervalInput.getText().toString().trim());
-            cycles = Long.parseLong(cyclesInput.getText().toString().trim());
-            if (!Double.isFinite(intervalMs) || intervalMs < .5 || intervalMs > 2000 || cycles < 0) throw new IllegalArgumentException();
-        } catch (IllegalArgumentException e) {
-            DiagnosticLog.record(this, "Start rejected: invalid timing or cycle count");
-            statusText.setText("周期为 0.5–2000 毫秒；轮数为非负整数"); return;
+            intervalMs = Math.max(10d, Double.parseDouble(prefs.getString("interval_ms", "10")));
+            cycles = Math.max(0L, prefs.getLong("cycles", 0L));
+            if (!Double.isFinite(intervalMs) || intervalMs > 2000) throw new IllegalArgumentException();
+        } catch (RuntimeException e) {
+            statusText.setText("请先在应用内点击设置中检查参数"); return;
+        }
+        if (!movePanelAwayFromTargets()) {
+            Toast.makeText(this, "悬浮窗与点位重叠，请移动点位后再开始", Toast.LENGTH_LONG).show();
+            return;
         }
         final long token = gate.begin();
         if (token < 0) return;
         DiagnosticLog.record(this, "Start requested: points=" + points.size()
                 + " intervalMs=" + intervalMs + " cycles=" + cycles);
-        hidePanelInput();
-        prefs.edit().putString("interval_ms",String.valueOf(intervalMs)).putLong("cycles",cycles).apply();
-        deleteMode=false; deleteBtn.setText("编辑");
+
         final List<TapPoint> target=collectPoints();
         setRunningUi(true); statusText.setText("正在启动…");
         NativeTouchEngine.CONTROL.execute(() -> {
@@ -624,7 +438,7 @@ public final class OverlayService extends Service {
             main.post(() -> {
                 if (!destroyed && gate.stopped(token)) {
                     DiagnosticLog.record(this, "Task stopped");
-                    setRunningUi(false); statusText.setText("已停止 · 可调整点位和参数");
+                    setRunningUi(false); statusText.setText("已停止");
                     if (afterStop != null) afterStop.run();
                 }
             });
@@ -639,7 +453,41 @@ public final class OverlayService extends Service {
             else p.lp.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
             try { wm.updateViewLayout(p.view,p.lp); } catch (IllegalArgumentException ignored) {}
         }
-        refreshMarkers(); refreshPointCount();
+        refreshMarkers();
+    }
+
+
+    private void reloadPoints() {
+        if (runningUi || engine.isRunning()) return;
+        for (PointView p : new ArrayList<>(points)) try { wm.removeView(p.view); } catch (Throwable ignored) {}
+        points.clear();
+        restorePoints();
+    }
+
+    /** Keep every configured touch target outside the expanded controller's hit area. */
+    private boolean movePanelAwayFromTargets() {
+        if (points.isEmpty()) return true;
+        expandPanel();
+        Point display = new Point(); wm.getDefaultDisplay().getRealSize(display);
+        int width = panelLp.width;
+        int height = Math.max(panel.getMeasuredHeight(), dp(160));
+        int edge = dp(24);
+        int[] xs = {edge, Math.max(edge, (display.x-width)/2), Math.max(edge, display.x-width-edge)};
+        int[] ys = {dp(32), Math.max(dp(32), (display.y-height)/2), Math.max(dp(32), display.y-height-dp(32))};
+        int margin = dp(24);
+        for (int y : ys) for (int x : xs) {
+            Rect candidate = new Rect(x-margin, y-margin, x+width+margin, y+height+margin);
+            boolean collision = false;
+            for (PointView point : points) {
+                int px = point.lp.x + markerSizePx/2, py = point.lp.y + markerSizePx/2;
+                if (candidate.contains(px, py)) { collision = true; break; }
+            }
+            if (!collision) {
+                panelLp.x=x; panelLp.y=y; panelLp.height=WindowManager.LayoutParams.WRAP_CONTENT;
+                clampPanel(); prefs.edit().putInt("panel_x",x).putInt("panel_y",y).apply(); return true;
+            }
+        }
+        return false;
     }
 
     private void savePoints() {
@@ -815,12 +663,9 @@ public final class OverlayService extends Service {
                     moved = true;
                 }
 
-                if (!deleteMode) {
-                    point.lp.x = startX + Math.round(dx);
-                    point.lp.y = startY + Math.round(dy);
-
-                    try { wm.updateViewLayout(point.view, point.lp); } catch (Throwable ignored) {}
-                }
+                point.lp.x = startX + Math.round(dx);
+                point.lp.y = startY + Math.round(dy);
+                try { wm.updateViewLayout(point.view, point.lp); } catch (Throwable ignored) {}
 
                 return true;
             }
@@ -828,7 +673,7 @@ public final class OverlayService extends Service {
             if (e.getAction() == MotionEvent.ACTION_UP) {
                 long held = System.currentTimeMillis() - downAt;
 
-                if (deleteMode || (!moved && held >= 500)) {
+                if (!moved && held >= 700) {
                     removePoint(point);
                 } else {
                     savePoints();

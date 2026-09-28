@@ -59,11 +59,11 @@ public final class Android17OverlaySmokeTest {
                 Until.findObject(By.desc("轻点暂停并展开，拖动移动位置")), 5000);
         assertNotNull("collapsed overlay must remain visible as a draggable clock pill", mini);
         assertNotNull("collapsed overlay must keep the Beijing time visible",
-                device.wait(Until.findObject(By.text(Pattern.compile("\\d{2}:\\d{2}:\\d{2}"))), 5000));
+                mini.findObject(By.text(Pattern.compile("\\d{2}:\\d{2}:\\d{2}"))));
         Point before = mini.getVisibleCenter();
         mini.drag(new Point(before.x + 160, before.y + 180), 700);
         device.waitForIdle();
-        mini = device.findObject(By.desc("轻点停止并展开，拖动移动位置"));
+        mini = device.findObject(By.desc("轻点暂停并展开，拖动移动位置"));
         Point after = mini.getVisibleCenter();
         assertNotEquals("compact overlay must move when dragged", before, after);
         mini.click();

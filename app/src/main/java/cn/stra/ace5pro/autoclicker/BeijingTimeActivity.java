@@ -1,7 +1,9 @@
 package cn.stra.ace5pro.autoclicker;
 
 import android.app.Activity;
+import android.content.res.Configuration;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
@@ -28,6 +30,7 @@ public final class BeijingTimeActivity extends Activity {
     private final TimeZone beijing = TimeZone.getTimeZone("Asia/Shanghai");
     private final SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm:ss", Locale.CHINA);
     private final SimpleDateFormat dateFmt = new SimpleDateFormat("yyyy年MM月dd日  EEEE", Locale.CHINA);
+    private int bgColor, surfaceColor, inkColor, mutedColor, primaryColor;
 
     private final Runnable ticker = new Runnable() {
         @Override
@@ -43,6 +46,14 @@ public final class BeijingTimeActivity extends Activity {
 
         timeFmt.setTimeZone(beijing);
         dateFmt.setTimeZone(beijing);
+
+        boolean dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                == Configuration.UI_MODE_NIGHT_YES;
+        bgColor = Color.rgb(dark ? 17 : 246, dark ? 19 : 247, dark ? 25 : 251);
+        surfaceColor = Color.rgb(dark ? 30 : 255, dark ? 33 : 255, dark ? 42 : 255);
+        inkColor = Color.rgb(dark ? 240 : 27, dark ? 237 : 30, dark ? 246 : 42);
+        mutedColor = Color.rgb(dark ? 181 : 100, dark ? 184 : 105, dark ? 197 : 121);
+        primaryColor = Color.rgb(dark ? 171 : 62, dark ? 190 : 91, dark ? 255 : 214);
 
         buildUi();
         BeijingTimeManager.ensureSync(this);
@@ -68,7 +79,6 @@ public final class BeijingTimeActivity extends Activity {
         GradientDrawable d = new GradientDrawable();
         d.setColor(color);
         d.setCornerRadius(dp(radius));
-        d.setStroke(dp(1), Color.argb(55, 255, 255, 255));
         return d;
     }
 
@@ -81,25 +91,21 @@ public final class BeijingTimeActivity extends Activity {
     }
 
     private void buildUi() {
-        GradientDrawable rootBg = new GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{Color.rgb(7, 10, 17), Color.rgb(13, 20, 34), Color.rgb(7, 9, 14)});
-
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18), dp(28), dp(18), dp(28));
-        root.setBackground(rootBg);
+        root.setPadding(dp(20), dp(50), dp(20), dp(30));
+        root.setBackgroundColor(bgColor);
 
-        TextView back = text("‹  返回", 16, Color.rgb(166, 196, 255));
-        back.setPadding(0, dp(4), 0, dp(8));
+        TextView back = text("‹   返回", 14, primaryColor);
+        back.setPadding(0, dp(4), 0, dp(12));
         back.setOnClickListener(v -> finish());
         root.addView(back);
 
-        TextView title = text("北京时间", 30, Color.WHITE);
-        title.setTypeface(null, 1);
+        TextView title = text("北京时间", 30, inkColor);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         root.addView(title);
 
-        TextView sub = text("联网 NTP 校时 · Asia/Shanghai · UTC+8", 13, Color.rgb(156, 168, 192));
+        TextView sub = text("联网校时  ·  Asia/Shanghai  ·  UTC+8", 13, mutedColor);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(-1, -2);
         subLp.setMargins(0, dp(6), 0, dp(18));
         root.addView(sub, subLp);
@@ -108,16 +114,19 @@ public final class BeijingTimeActivity extends Activity {
         clockCard.setOrientation(LinearLayout.VERTICAL);
         clockCard.setGravity(Gravity.CENTER);
         clockCard.setPadding(dp(16), dp(24), dp(16), dp(24));
-        clockCard.setBackground(bg(Color.argb(222, 22, 30, 48), 28));
+        GradientDrawable clockBg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{Color.rgb(62, 91, 214), Color.rgb(83, 132, 238)});
+        clockBg.setCornerRadius(dp(30));
+        clockCard.setBackground(clockBg);
 
-        timeText = text("--:--:--", 54, Color.WHITE);
-        timeText.setTypeface(null, 1);
+        timeText = text("--:--:--", 48, Color.WHITE);
+        timeText.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         timeText.setGravity(Gravity.CENTER);
 
-        msText = text(".000", 20, Color.rgb(119, 195, 255));
+        msText = text(".000", 19, Color.rgb(227, 237, 255));
         msText.setGravity(Gravity.CENTER);
 
-        dateText = text("等待时间…", 15, Color.rgb(189, 199, 218));
+        dateText = text("等待时间…", 14, Color.rgb(237, 243, 255));
         dateText.setGravity(Gravity.CENTER);
 
         clockCard.addView(timeText);
@@ -127,15 +136,15 @@ public final class BeijingTimeActivity extends Activity {
         dateLp.setMargins(0, dp(10), 0, 0);
         clockCard.addView(dateText, dateLp);
 
-        root.addView(clockCard, new LinearLayout.LayoutParams(-1, dp(230)));
+        root.addView(clockCard, new LinearLayout.LayoutParams(-1, dp(224)));
 
         LinearLayout infoCard = new LinearLayout(this);
         infoCard.setOrientation(LinearLayout.VERTICAL);
         infoCard.setPadding(dp(16), dp(14), dp(16), dp(14));
-        infoCard.setBackground(bg(Color.argb(214, 24, 29, 40), 20));
+        infoCard.setBackground(bg(surfaceColor, 24));
 
-        statusText = text("校时状态：正在连接…", 14, Color.WHITE);
-        sourceText = text("时间源：等待中", 13, Color.rgb(155, 169, 193));
+        statusText = text("校时状态：正在连接…", 14, inkColor);
+        sourceText = text("时间源：等待中", 13, mutedColor);
 
         infoCard.addView(statusText);
 
@@ -147,9 +156,10 @@ public final class BeijingTimeActivity extends Activity {
         infoLp.setMargins(0, dp(12), 0, 0);
         root.addView(infoCard, infoLp);
 
-        TextView sync = text("立即重新联网校时", 15, Color.WHITE);
+        TextView sync = text("立即重新校时", 14, Color.WHITE);
+        sync.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         sync.setGravity(Gravity.CENTER);
-        sync.setBackground(bg(Color.argb(230, 28, 100, 216), 18));
+        sync.setBackground(bg(primaryColor, 22));
         sync.setOnClickListener(v -> {
             statusText.setText("校时状态：正在重新同步…");
             BeijingTimeManager.forceSync(this, () ->
@@ -164,7 +174,7 @@ public final class BeijingTimeActivity extends Activity {
                 "时间优先从阿里云 / 腾讯云公网 NTP 获取。校时成功后使用 Android 单调时钟持续走时，" +
                 "避免手机系统时间被手动修改或轻微漂移影响显示。",
                 12.5f,
-                Color.rgb(138, 151, 175));
+                mutedColor);
         note.setLineSpacing(0, 1.18f);
 
         LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);

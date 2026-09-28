@@ -156,7 +156,7 @@ public final class OverlayService extends Service {
         GradientDrawable d = new GradientDrawable();
         d.setColor(color);
         d.setCornerRadius(dp(radiusDp));
-        d.setStroke(dp(1), Color.argb(58, 255, 255, 255));
+        d.setStroke(dp(1), Color.argb(26, 255, 255, 255));
         return d;
     }
 
@@ -164,12 +164,12 @@ public final class OverlayService extends Service {
         GradientDrawable d = new GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
                 new int[]{
-                        Color.argb(247, 17, 23, 34),
-                        Color.argb(244, 23, 31, 46),
-                        Color.argb(247, 13, 17, 25)
+                        Color.rgb(35, 39, 50),
+                        Color.rgb(28, 32, 42),
+                        Color.rgb(24, 28, 38)
                 });
-        d.setCornerRadius(dp(20));
-        d.setStroke(dp(1), Color.argb(72, 255, 255, 255));
+        d.setCornerRadius(dp(28));
+        d.setStroke(dp(1), Color.argb(35, 255, 255, 255));
         return d;
     }
 
@@ -183,8 +183,9 @@ public final class OverlayService extends Service {
     }
 
     private TextView button(String value) {
-        TextView v = text(value, 13.5f, Color.WHITE);
-        v.setBackground(bg(Color.argb(232, 42, 53, 72), 14));
+        TextView v = text(value, 13, Color.WHITE);
+        v.setTypeface(null, 1);
+        v.setBackground(bg(Color.rgb(52, 58, 72), 18));
         v.setPadding(dp(8), 0, dp(8), 0);
         return v;
     }
@@ -274,19 +275,19 @@ public final class OverlayService extends Service {
     private void createPanel() {
         panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(12), dp(11), dp(12), dp(12));
+        panel.setPadding(dp(15), dp(14), dp(15), dp(15));
         panel.setBackground(glassBg());
 
         header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
 
-        titleText = text("STRA  /  点击控制", 15.5f, Color.WHITE);
+        titleText = text("STRA  ·  点击控制", 16, Color.WHITE);
         titleText.setTypeface(null, 1);
         titleText.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
         titleText.setPadding(dp(3), 0, 0, 0);
 
-        collapseBtn = button("—");
+        collapseBtn = button("⌄");
         TextView closeBtn = button("×");
 
         header.addView(titleText, new LinearLayout.LayoutParams(0, dp(42), 1f));
@@ -301,26 +302,26 @@ public final class OverlayService extends Service {
 
         panel.addView(header);
 
-        beijingClock = text("北京时间  --:--:--", 15, Color.rgb(139, 207, 255));
+        beijingClock = text("北京时间  --:--:--", 14, Color.WHITE);
         clockView = beijingClock;
         beijingClock.setTypeface(null, 1);
         beijingClock.setGravity(Gravity.CENTER_VERTICAL);
         beijingClock.setPadding(dp(4), 0, dp(4), 0);
-        beijingClock.setBackground(bg(Color.argb(115, 34, 92, 160), 12));
+        beijingClock.setBackground(bg(Color.rgb(53, 89, 163), 20));
 
-        LinearLayout.LayoutParams clockLp = new LinearLayout.LayoutParams(-1, dp(42));
-        clockLp.setMargins(0, dp(5), 0, 0);
+        LinearLayout.LayoutParams clockLp = new LinearLayout.LayoutParams(-1, dp(46));
+        clockLp.setMargins(0, dp(8), 0, 0);
         panel.addView(beijingClock, clockLp);
 
         body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
 
-        statusText = text("状态  ·  正在检测触摸引擎…", 12.5f, Color.rgb(196, 210, 231));
+        statusText = text("正在检测触摸引擎…", 12.5f, Color.rgb(196, 210, 231));
         statusText.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
         statusText.setPadding(dp(4), 0, dp(4), 0);
         body.addView(statusText, new LinearLayout.LayoutParams(-1, dp(34)));
 
-        pointText = text("0 个点位", 12.5f, Color.rgb(115, 208, 255));
+        pointText = text("0 个点位", 12.5f, Color.rgb(168, 199, 255));
         pointText.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
         pointText.setPadding(dp(4), 0, dp(4), 0);
         body.addView(pointText, new LinearLayout.LayoutParams(-1, dp(28)));
@@ -369,12 +370,13 @@ public final class OverlayService extends Service {
 
         LinearLayout presets = new LinearLayout(this);
         presets.setOrientation(LinearLayout.HORIZONTAL);
-        String[] presetValues = {"0.5 ms 极速", "1 ms", "5 ms", "10 ms"};
+        String[] presetValues = {"0.5 ms", "1 ms", "5 ms", "10 ms"};
         String[] presetIntervals = {"0.5", "1", "5", "10"};
         for (int i = 0; i < presetValues.length; i++) {
             final String value = presetIntervals[i];
             TextView preset = button(presetValues[i]);
-            preset.setTextColor(i == 0 ? Color.rgb(139, 222, 255) : Color.WHITE);
+            preset.setTextColor(i == 0 ? Color.rgb(207, 223, 255) : Color.WHITE);
+            if (i == 0) preset.setBackground(bg(Color.rgb(48, 77, 139), 18));
             preset.setOnClickListener(v -> intervalInput.setText(value));
             LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(0, dp(38), 1f);
             if (i > 0) pp.setMargins(dp(6), 0, 0, 0);
@@ -390,8 +392,8 @@ public final class OverlayService extends Service {
         startBtn = button("▶ 开始");
         stopBtn = button("■ 停止");
 
-        startBtn.setBackground(bg(Color.rgb(24, 105, 225), 13));
-        stopBtn.setBackground(bg(Color.rgb(75, 82, 98), 13));
+        startBtn.setBackground(bg(Color.rgb(54, 103, 207), 20));
+        stopBtn.setBackground(bg(Color.rgb(73, 63, 75), 20));
 
         runRow.addView(startBtn, new LinearLayout.LayoutParams(0, dp(48), 1f));
 
@@ -405,7 +407,7 @@ public final class OverlayService extends Service {
 
         forceBtn = button("强制结束");
         forceBtn.setTextSize(14.5f);
-        forceBtn.setBackground(bg(Color.rgb(186, 42, 55), 14));
+        forceBtn.setBackground(bg(Color.rgb(143, 47, 61), 20));
 
         LinearLayout.LayoutParams forceLp = new LinearLayout.LayoutParams(-1, dp(48));
         forceLp.setMargins(0, dp(6), 0, 0);
@@ -426,7 +428,7 @@ public final class OverlayService extends Service {
                 : WindowManager.LayoutParams.TYPE_PHONE;
 
         panelLp = new WindowManager.LayoutParams(
-                dp(320),
+                Math.min(dp(350), getResources().getDisplayMetrics().widthPixels - dp(24)),
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 type,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
@@ -515,11 +517,11 @@ public final class OverlayService extends Service {
 
     private void expandPanel() {
         miniIcon.setVisibility(View.GONE);
-        panel.setPadding(dp(12), dp(11), dp(12), dp(12));
+        panel.setPadding(dp(15), dp(14), dp(15), dp(15));
         header.setVisibility(View.VISIBLE);
         clockView.setVisibility(View.VISIBLE);
         body.setVisibility(View.VISIBLE);
-        panelLp.width = dp(320);
+        panelLp.width = Math.min(dp(350), getResources().getDisplayMetrics().widthPixels - dp(24));
         panelLp.height = WindowManager.LayoutParams.WRAP_CONTENT;
         try { wm.updateViewLayout(panel, panelLp); } catch (Throwable ignored) {}
     }

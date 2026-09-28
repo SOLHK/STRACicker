@@ -13,8 +13,8 @@ android {
         applicationId 'cn.stra.autoclicker'
         minSdk 26
         targetSdk 35
-        versionCode 11
-        versionName '2.0.9-ace5pro'
+        versionCode 12
+        versionName '2.1.0-ace5pro'
     }
 
     buildTypes {
@@ -40,3 +40,4 @@ if (stableKeyPath && stableStorePassword && stableKeyPassword) {
     android.buildTypes.getByName('release').signingConfig =
             android.signingConfigs.getByName('stableRelease')
 }
+

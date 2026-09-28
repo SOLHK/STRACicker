@@ -61,5 +61,6 @@ jobs:
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: STRACicker-v2.0.9-apk
+          name: STRACicker-v2.1.0-apk
           path: ${{ steps.build-apk.outputs.apk_path }}
+

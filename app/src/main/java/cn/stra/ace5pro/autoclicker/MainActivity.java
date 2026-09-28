@@ -3,7 +3,9 @@ package cn.stra.ace5pro.autoclicker;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
@@ -13,6 +15,8 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.system.Os;
 import android.view.Gravity;
+import android.view.View;
+import android.view.Window;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -26,335 +30,212 @@ import java.util.TimeZone;
 public final class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm:ss", Locale.CHINA);
-
-    private TextView rootState;
-    private TextView overlayState;
-    private TextView engineState;
-    private TextView beijingTime;
-    private TextView beijingSource;
+    private int bg, surface, surfaceAlt, ink, muted, primary, primaryInk, outline, good, danger;
+    private View rootState, overlayState, engineState;
+    private TextView beijingTime, beijingSource;
 
     private final Runnable ticker = new Runnable() {
-        @Override
-        public void run() {
-            refreshTime();
-            handler.postDelayed(this, 250L);
-        }
+        @Override public void run() { refreshTime(); handler.postDelayed(this, 250L); }
     };
 
-    @Override
-    protected void onCreate(Bundle state) {
+    @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-
         timeFmt.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
-
-        if (Build.VERSION.SDK_INT >= 33) {
-            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 10);
-        }
-
+        resolvePalette();
+        styleSystemBars();
+        if (Build.VERSION.SDK_INT >= 33) requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 10);
         buildUi();
         BeijingTimeManager.ensureSync(this);
         refresh();
     }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
-        refresh();
-        handler.post(ticker);
+    @Override protected void onResume() { super.onResume(); refresh(); handler.post(ticker); }
+    @Override protected void onPause() { handler.removeCallbacks(ticker); super.onPause(); }
+
+    private void resolvePalette() {
+        boolean dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                == Configuration.UI_MODE_NIGHT_YES;
+        bg = Color.rgb(dark ? 17 : 246, dark ? 19 : 247, dark ? 25 : 251);
+        surface = Color.rgb(dark ? 30 : 255, dark ? 33 : 255, dark ? 42 : 255);
+        surfaceAlt = Color.rgb(dark ? 39 : 235, dark ? 43 : 239, dark ? 54 : 247);
+        ink = Color.rgb(dark ? 240 : 27, dark ? 237 : 30, dark ? 246 : 42);
+        muted = Color.rgb(dark ? 181 : 100, dark ? 184 : 105, dark ? 197 : 121);
+        primary = Color.rgb(dark ? 171 : 62, dark ? 190 : 91, dark ? 255 : 214);
+        primaryInk = Color.rgb(dark ? 23 : 255, dark ? 36 : 255, dark ? 61 : 255);
+        outline = Color.rgb(dark ? 72 : 222, dark ? 77 : 225, dark ? 91 : 234);
+        good = Color.rgb(dark ? 131 : 31, dark ? 213 : 113, dark ? 164 : 87);
+        danger = Color.rgb(dark ? 255 : 179, dark ? 180 : 38, dark ? 171 : 54);
     }
 
-    @Override
-    protected void onPause() {
-        handler.removeCallbacks(ticker);
-        super.onPause();
+    private void styleSystemBars() {
+        Window w = getWindow();
+        w.setStatusBarColor(bg);
+        w.setNavigationBarColor(bg);
+        int flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE;
+        if ((getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                != Configuration.UI_MODE_NIGHT_YES) {
+            flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        }
+        w.getDecorView().setSystemUiVisibility(flags);
     }
 
-    private int dp(int v) {
-        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
+    private int dp(float v) { return (int) (v * getResources().getDisplayMetrics().density + .5f); }
+
+    private GradientDrawable shape(int color, float radius) {
+        GradientDrawable d = new GradientDrawable(); d.setColor(color); d.setCornerRadius(dp(radius)); return d;
     }
 
-    private GradientDrawable bg(int color, int radius) {
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(color);
-        d.setCornerRadius(dp(radius));
-        d.setStroke(dp(1), Color.argb(55, 255, 255, 255));
-        return d;
+    private GradientDrawable gradient(int a, int b, float radius) {
+        GradientDrawable d = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{a, b});
+        d.setCornerRadius(dp(radius)); return d;
     }
 
-    private TextView text(String s, float sp, int color) {
-        TextView v = new TextView(this);
-        v.setText(s);
-        v.setTextSize(sp);
-        v.setTextColor(color);
-        return v;
-    }
-
-    private TextView action(String title, String sub) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        return null;
-    }
-
-    private LinearLayout actionCard(String title, String sub) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setPadding(dp(18), dp(13), dp(18), dp(13));
-
-        int top = title.contains("急停") ? Color.rgb(163, 43, 59)
-                : title.contains("开启") ? Color.rgb(24, 111, 235)
-                : Color.rgb(35, 48, 69);
-        int bottom = title.contains("急停") ? Color.rgb(111, 34, 52)
-                : title.contains("开启") ? Color.rgb(27, 72, 158)
-                : Color.rgb(20, 28, 43);
-        GradientDrawable cardBg = new GradientDrawable(
-                GradientDrawable.Orientation.TL_BR, new int[]{top, bottom});
-        cardBg.setCornerRadius(dp(22));
-        cardBg.setStroke(dp(1), Color.argb(72, 210, 229, 255));
-        card.setBackground(cardBg);
-
-        TextView t = text(title, 17, Color.WHITE);
-        t.setTypeface(null, 1);
-        TextView s = text(sub, 13, Color.rgb(205, 216, 233));
-        s.setPadding(0, dp(4), 0, 0);
-
-        card.addView(t);
-        card.addView(s);
-        return card;
+    private TextView label(String s, float size, int color) {
+        TextView v = new TextView(this); v.setText(s); v.setTextSize(size); v.setTextColor(color);
+        v.setFontFeatureSettings("kern"); return v;
     }
 
     private void buildUi() {
-        GradientDrawable rootBg = new GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{
-                        Color.rgb(6, 9, 16),
-                        Color.rgb(11, 18, 31),
-                        Color.rgb(7, 10, 16)
-                });
+        LinearLayout page = new LinearLayout(this); page.setOrientation(LinearLayout.VERTICAL);
+        page.setPadding(dp(20), dp(50), dp(20), dp(28)); page.setBackgroundColor(bg);
 
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18), dp(30), dp(18), dp(28));
-        root.setBackground(rootBg);
+        LinearLayout brandRow = new LinearLayout(this); brandRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView mark = label("S", 16, Color.WHITE); mark.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        mark.setGravity(Gravity.CENTER); mark.setBackground(shape(primary, 15));
+        brandRow.addView(mark, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        TextView brand = label("STRA  ·  CLICK TOOLS", 12, muted); brand.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        LinearLayout.LayoutParams brandLp = new LinearLayout.LayoutParams(-2, -2); brandLp.leftMargin = dp(10);
+        brandRow.addView(brand, brandLp); page.addView(brandRow);
 
-        TextView brand = text("STRA", 15, Color.rgb(104, 172, 255));
-        brand.setTypeface(null, 1);
-        root.addView(brand);
+        TextView title = label("连点控制台", 30, ink); title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(-1, -2); titleLp.topMargin = dp(18);
+        page.addView(title, titleLp);
+        TextView subtitle = label("管理点位、节奏与运行状态", 14, muted);
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(-1, -2); subLp.topMargin = dp(4); subLp.bottomMargin = dp(18);
+        page.addView(subtitle, subLp);
 
-        TextView title = text("连点控制台", 31, Color.WHITE);
-        title.setTypeface(null, 1);
-        root.addView(title);
+        LinearLayout clock = new LinearLayout(this); clock.setOrientation(LinearLayout.VERTICAL);
+        clock.setPadding(dp(20), dp(17), dp(20), dp(17)); clock.setGravity(Gravity.CENTER_VERTICAL);
+        clock.setBackground(gradient(primary, Color.rgb(126, 173, 255), 27));
+        TextView clockLabel = label("北京时间  ·  NTP 校时", 12, Color.rgb(235, 243, 255));
+        beijingTime = label("--:--:--", 38, Color.WHITE); beijingTime.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        beijingSource = label("正在联网校时…", 11.5f, Color.rgb(238, 245, 255));
+        clock.addView(clockLabel); LinearLayout.LayoutParams timeLp = new LinearLayout.LayoutParams(-1, -2); timeLp.topMargin = dp(2);
+        clock.addView(beijingTime, timeLp); LinearLayout.LayoutParams sourceLp = new LinearLayout.LayoutParams(-1, -2); sourceLp.topMargin = dp(2);
+        clock.addView(beijingSource, sourceLp); clock.setOnClickListener(v -> startActivity(new Intent(this, BeijingTimeActivity.class)));
+        page.addView(clock, new LinearLayout.LayoutParams(-1, dp(126)));
 
-        TextView sub = text(
-                "STRA  ·  Ace 5 Pro 专用  ·  Root / uinput",
-                13.5f,
-                Color.rgb(177, 194, 220));
-        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(-1, -2);
-        subLp.setMargins(0, dp(4), 0, dp(16));
-        root.addView(sub, subLp);
+        LinearLayout section = new LinearLayout(this); section.setGravity(Gravity.CENTER_VERTICAL);
+        TextView sectionTitle = label("运行环境", 16, ink); sectionTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        section.addView(sectionTitle); TextView live = label("实时状态", 11, muted); live.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        section.addView(live, new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout.LayoutParams sectionLp = new LinearLayout.LayoutParams(-1, -2); sectionLp.topMargin = dp(20); sectionLp.bottomMargin = dp(9);
+        page.addView(section, sectionLp);
 
-        LinearLayout clockCard = new LinearLayout(this);
-        clockCard.setOrientation(LinearLayout.VERTICAL);
-        clockCard.setPadding(dp(18), dp(16), dp(18), dp(16));
-        clockCard.setBackground(bg(Color.argb(225, 20, 29, 47), 24));
-        clockCard.setOnClickListener(v ->
-                startActivity(new Intent(this, BeijingTimeActivity.class)));
+        LinearLayout statusCard = new LinearLayout(this); statusCard.setOrientation(LinearLayout.VERTICAL);
+        statusCard.setPadding(dp(16), dp(7), dp(16), dp(7)); statusCard.setBackground(shape(surface, 23));
+        rootState = statusRow("ROOT 权限", "正在检测…");
+        overlayState = statusRow("悬浮窗", "正在检测…");
+        engineState = statusRow("点击引擎", "正在检测…");
+        statusCard.addView(rootState); statusCard.addView(divider()); statusCard.addView(overlayState); statusCard.addView(divider()); statusCard.addView(engineState);
+        page.addView(statusCard, new LinearLayout.LayoutParams(-1, -2));
 
-        TextView clockLabel = text("北京时间", 12.5f, Color.rgb(125, 185, 255));
-        beijingTime = text("--:--:--", 38, Color.WHITE);
-        beijingTime.setTypeface(null, 1);
-        beijingSource = text("正在联网校时…", 11.5f, Color.rgb(150, 164, 188));
+        LinearLayout start = action("开启悬浮控制器", "添加点位并开始点击", "↗", primary, primaryInk);
+        LinearLayout.LayoutParams startLp = new LinearLayout.LayoutParams(-1, dp(76)); startLp.topMargin = dp(18);
+        page.addView(start, startLp); start.setOnClickListener(v -> startOverlay());
 
-        clockCard.addView(clockLabel);
-        clockCard.addView(beijingTime);
+        LinearLayout emergency = action("紧急停止", "结束正在运行的点击任务", "■", surface, danger);
+        LinearLayout.LayoutParams emergencyLp = new LinearLayout.LayoutParams(-1, dp(70)); emergencyLp.topMargin = dp(9);
+        page.addView(emergency, emergencyLp); emergency.setOnClickListener(v -> emergencyStop());
 
-        LinearLayout.LayoutParams sourceLp = new LinearLayout.LayoutParams(-1, -2);
-        sourceLp.setMargins(0, dp(2), 0, 0);
-        clockCard.addView(beijingSource, sourceLp);
+        LinearLayout tools = new LinearLayout(this); tools.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout speed = tile("速度测试", "CPS 与点击间隔", "↗");
+        LinearLayout time = tile("校时详情", "NTP 与网络延迟", "◷");
+        tools.addView(speed, new LinearLayout.LayoutParams(0, dp(108), 1));
+        LinearLayout.LayoutParams timeLp = new LinearLayout.LayoutParams(0, dp(108), 1); timeLp.leftMargin = dp(10);
+        tools.addView(time, timeLp); LinearLayout.LayoutParams toolsLp = new LinearLayout.LayoutParams(-1, -2); toolsLp.topMargin = dp(10);
+        page.addView(tools, toolsLp);
+        speed.setOnClickListener(v -> startActivity(new Intent(this, SpeedTestActivity.class)));
+        time.setOnClickListener(v -> startActivity(new Intent(this, BeijingTimeActivity.class)));
 
-        root.addView(clockCard, new LinearLayout.LayoutParams(-1, dp(126)));
+        TextView permissions = label("悬浮窗权限设置   ›", 13, muted); permissions.setGravity(Gravity.CENTER);
+        permissions.setBackground(shape(surfaceAlt, 18)); LinearLayout.LayoutParams permLp = new LinearLayout.LayoutParams(-1, dp(48)); permLp.topMargin = dp(10);
+        page.addView(permissions, permLp); permissions.setOnClickListener(v -> openOverlaySettings());
 
-        LinearLayout statusCard = new LinearLayout(this);
-        statusCard.setOrientation(LinearLayout.VERTICAL);
-        statusCard.setPadding(dp(16), dp(14), dp(16), dp(14));
-        statusCard.setBackground(bg(Color.argb(208, 23, 28, 39), 20));
+        TextView device = label(deviceText(), 11, muted); device.setLineSpacing(0, 1.15f);
+        LinearLayout.LayoutParams deviceLp = new LinearLayout.LayoutParams(-1, -2); deviceLp.topMargin = dp(18); page.addView(device, deviceLp);
 
-        rootState = text("Root    检测中…", 14, Color.WHITE);
-        overlayState = text("悬浮窗  检测中…", 14, Color.WHITE);
-        engineState = text("引擎    检测中…", 14, Color.WHITE);
+        ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true); scroll.setClipToPadding(false); scroll.addView(page); setContentView(scroll);
+    }
 
-        statusCard.addView(rootState);
+    private View divider() { View v = new View(this); v.setBackgroundColor(outline); LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(1)); p.leftMargin = dp(38); return v; }
 
-        LinearLayout.LayoutParams st2 = new LinearLayout.LayoutParams(-1, -2);
-        st2.setMargins(0, dp(7), 0, 0);
-        statusCard.addView(overlayState, st2);
+    private LinearLayout statusRow(String name, String initial) {
+        LinearLayout row = new LinearLayout(this); row.setGravity(Gravity.CENTER_VERTICAL); row.setPadding(0, dp(10), 0, dp(10));
+        TextView dot = label("●", 10, primary); row.addView(dot, new LinearLayout.LayoutParams(dp(22), -2));
+        TextView title = label(name, 13, ink); title.setTypeface(Typeface.DEFAULT, Typeface.BOLD); row.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView state = label(initial, 12, muted); state.setGravity(Gravity.END | Gravity.CENTER_VERTICAL); row.addView(state);
+        row.setTag(state); return row;
+    }
 
-        LinearLayout.LayoutParams st3 = new LinearLayout.LayoutParams(-1, -2);
-        st3.setMargins(0, dp(7), 0, 0);
-        statusCard.addView(engineState, st3);
+    private LinearLayout action(String title, String subtitle, String iconText, int fill, int fg) {
+        LinearLayout row = new LinearLayout(this); row.setGravity(Gravity.CENTER_VERTICAL); row.setPadding(dp(17), dp(10), dp(14), dp(10)); row.setBackground(shape(fill, 23));
+        LinearLayout copy = new LinearLayout(this); copy.setOrientation(LinearLayout.VERTICAL);
+        TextView t = label(title, 16, fg); t.setTypeface(Typeface.DEFAULT, Typeface.BOLD); TextView s = label(subtitle, 12, fg == primaryInk ? Color.rgb(236, 244, 255) : muted);
+        LinearLayout.LayoutParams sLp = new LinearLayout.LayoutParams(-1, -2); sLp.topMargin = dp(3); copy.addView(t); copy.addView(s, sLp);
+        row.addView(copy, new LinearLayout.LayoutParams(0, -2, 1)); TextView icon = label(iconText, 21, fg); icon.setGravity(Gravity.CENTER); icon.setBackground(shape(fill == primary ? Color.rgb(80, 133, 237) : surfaceAlt, 18));
+        row.addView(icon, new LinearLayout.LayoutParams(dp(46), dp(46))); return row;
+    }
 
-        LinearLayout.LayoutParams statusLp = new LinearLayout.LayoutParams(-1, -2);
-        statusLp.setMargins(0, dp(10), 0, 0);
-        root.addView(statusCard, statusLp);
-
-        LinearLayout start = actionCard(
-                "开启悬浮控制器",
-                "添加点位、开始 / 停止、强制结束、显示北京时间");
-        start.setOnClickListener(v -> startOverlay());
-
-        LinearLayout.LayoutParams a1 = new LinearLayout.LayoutParams(-1, dp(76));
-        a1.setMargins(0, dp(12), 0, 0);
-        root.addView(start, a1);
-
-        LinearLayout emergency = actionCard(
-                "紧急停止 / 关闭点击",
-                "立即发出停止信号，并结束 Root 点击进程");
-        emergency.setOnClickListener(v -> emergencyStop());
-        LinearLayout.LayoutParams emergencyLp = new LinearLayout.LayoutParams(-1, dp(76));
-        emergencyLp.setMargins(0, dp(8), 0, 0);
-        root.addView(emergency, emergencyLp);
-
-        LinearLayout speed = actionCard(
-                "点击速度测试",
-                "实时 CPS、峰值、1 秒均速、平均点击间隔");
-        speed.setOnClickListener(v ->
-                startActivity(new Intent(this, SpeedTestActivity.class)));
-
-        LinearLayout.LayoutParams a2 = new LinearLayout.LayoutParams(-1, dp(76));
-        a2.setMargins(0, dp(8), 0, 0);
-        root.addView(speed, a2);
-
-        LinearLayout time = actionCard(
-                "北京时间详情",
-                "NTP 时间源、毫秒显示、RTT、手动重新校时");
-        time.setOnClickListener(v ->
-                startActivity(new Intent(this, BeijingTimeActivity.class)));
-
-        LinearLayout.LayoutParams a3 = new LinearLayout.LayoutParams(-1, dp(76));
-        a3.setMargins(0, dp(8), 0, 0);
-        root.addView(time, a3);
-
-        LinearLayout permissions = actionCard(
-                "悬浮窗权限",
-                "未授权时点这里进入系统设置");
-        permissions.setOnClickListener(v -> openOverlaySettings());
-
-        LinearLayout.LayoutParams a4 = new LinearLayout.LayoutParams(-1, dp(70));
-        a4.setMargins(0, dp(8), 0, 0);
-        root.addView(permissions, a4);
-
-        TextView device = text(deviceText(), 11.5f, Color.rgb(111, 125, 149));
-        device.setLineSpacing(0, 1.14f);
-
-        LinearLayout.LayoutParams deviceLp = new LinearLayout.LayoutParams(-1, -2);
-        deviceLp.setMargins(dp(2), dp(16), dp(2), 0);
-        root.addView(device, deviceLp);
-
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.addView(root);
-        setContentView(scroll);
+    private LinearLayout tile(String title, String sub, String iconText) {
+        LinearLayout card = new LinearLayout(this); card.setOrientation(LinearLayout.VERTICAL); card.setPadding(dp(14), dp(13), dp(14), dp(12)); card.setBackground(shape(surface, 22));
+        TextView icon = label(iconText, 18, primary); icon.setGravity(Gravity.CENTER); icon.setBackground(shape(surfaceAlt, 16)); card.addView(icon, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        TextView t = label(title, 14, ink); t.setTypeface(Typeface.DEFAULT, Typeface.BOLD); LinearLayout.LayoutParams tLp = new LinearLayout.LayoutParams(-1, -2); tLp.topMargin = dp(7); card.addView(t, tLp);
+        TextView s = label(sub, 10.5f, muted); LinearLayout.LayoutParams sLp = new LinearLayout.LayoutParams(-1, -2); sLp.topMargin = dp(2); card.addView(s, sLp); return card;
     }
 
     private String deviceText() {
-        String kernel;
-        try {
-            kernel = Os.uname().release;
-        } catch (Throwable t) {
-            kernel = System.getProperty("os.version", "unknown");
-        }
-
-        return Build.MANUFACTURER + " " + Build.MODEL
-                + "  ·  Android " + Build.VERSION.RELEASE
-                + "\n" + kernel;
+        String kernel; try { kernel = Os.uname().release; } catch (Throwable t) { kernel = System.getProperty("os.version", "unknown"); }
+        return Build.MANUFACTURER + " " + Build.MODEL + "  ·  Android " + Build.VERSION.RELEASE + "\n" + kernel;
     }
 
     private void startOverlay() {
-        if (!Settings.canDrawOverlays(this)) {
-            openOverlaySettings();
-            Toast.makeText(this, "请先授予悬浮窗权限", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        BeijingTimeManager.ensureSync(this);
-
-        Intent i = new Intent(this, OverlayService.class);
-        if (Build.VERSION.SDK_INT >= 26) {
-            startForegroundService(i);
-        } else {
-            startService(i);
-        }
-
+        if (!Settings.canDrawOverlays(this)) { openOverlaySettings(); Toast.makeText(this, "请先授予悬浮窗权限", Toast.LENGTH_SHORT).show(); return; }
+        BeijingTimeManager.ensureSync(this); Intent i = new Intent(this, OverlayService.class);
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i);
         Toast.makeText(this, "STRA 悬浮控制器已开启", Toast.LENGTH_SHORT).show();
     }
 
     private void emergencyStop() {
-        NativeTouchEngine.hardStop(this);
-        stopService(new Intent(this, OverlayService.class));
-        Toast.makeText(this, "已发送急停信号", Toast.LENGTH_SHORT).show();
-        refresh();
+        NativeTouchEngine.hardStop(this); stopService(new Intent(this, OverlayService.class));
+        Toast.makeText(this, "已发送急停信号", Toast.LENGTH_SHORT).show(); refresh();
     }
 
     private void openOverlaySettings() {
-        if (!Settings.canDrawOverlays(this)) {
-            startActivity(new Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:" + getPackageName())));
-        } else {
-            Toast.makeText(this, "悬浮窗权限已授权", Toast.LENGTH_SHORT).show();
-        }
+        if (!Settings.canDrawOverlays(this)) startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
+        else Toast.makeText(this, "悬浮窗权限已授权", Toast.LENGTH_SHORT).show();
+    }
+
+    private void setState(View row, String value, boolean positive) {
+        TextView state = (TextView) row.getTag(); state.setText(value); state.setTextColor(positive ? good : muted);
     }
 
     private void refresh() {
-        if (overlayState != null) {
-            overlayState.setText(Settings.canDrawOverlays(this)
-                    ? "悬浮窗  已授权 ✓"
-                    : "悬浮窗  未授权");
-        }
-
+        if (overlayState != null) setState(overlayState, Settings.canDrawOverlays(this) ? "已授权" : "未授权", Settings.canDrawOverlays(this));
         new Thread(() -> {
             boolean root = TouchDeviceDetector.hasRoot();
-
-            runOnUiThread(() ->
-                    rootState.setText(root
-                            ? "Root    已授权 ✓"
-                            : "Root    未授权"));
-
-            if (!root) {
-                runOnUiThread(() ->
-                        engineState.setText("引擎    等待 Root"));
-                return;
-            }
-
-            NativeTouchEngine engine = new NativeTouchEngine(this);
-            boolean ok = engine.probeSupport();
-
-            runOnUiThread(() ->
-                    engineState.setText(ok
-                            ? "引擎    uinput 可用 ✓"
-                            : "引擎    uinput 不可用"));
+            runOnUiThread(() -> setState(rootState, root ? "已授权" : "未授权", root));
+            if (!root) { runOnUiThread(() -> setState(engineState, "等待 Root", false)); return; }
+            boolean ok = new NativeTouchEngine(this).probeSupport();
+            runOnUiThread(() -> setState(engineState, ok ? "uinput 可用" : "uinput 不可用", ok));
         }, "stra-status").start();
-
         BeijingTimeManager.ensureSync(this);
     }
 
     private void refreshTime() {
-        BeijingTimeManager.ensureSync(this);
-
-        long now = BeijingTimeManager.nowMs(this);
-        beijingTime.setText(timeFmt.format(new Date(now)));
-
-        if (BeijingTimeManager.isSyncing()) {
-            beijingSource.setText("正在联网校时…");
-        } else if (BeijingTimeManager.isSynced(this)) {
-            beijingSource.setText(
-                    "已校时 · "
-                            + BeijingTimeManager.source(this)
-                            + " · RTT "
-                            + BeijingTimeManager.rttMs(this)
-                            + " ms");
-        } else {
-            beijingSource.setText("未完成联网校时 · 暂用系统时钟");
-        }
+        BeijingTimeManager.ensureSync(this); long now = BeijingTimeManager.nowMs(this); beijingTime.setText(timeFmt.format(new Date(now)));
+        if (BeijingTimeManager.isSyncing()) beijingSource.setText("正在联网校时…");
+        else if (BeijingTimeManager.isSynced(this)) beijingSource.setText("已校时  ·  " + BeijingTimeManager.source(this) + "  ·  RTT " + BeijingTimeManager.rttMs(this) + " ms");
+        else beijingSource.setText("未完成联网校时 · 暂用系统时钟");
     }
 }

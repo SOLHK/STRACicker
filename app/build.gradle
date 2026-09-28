@@ -1,5 +1,10 @@
 plugins { id 'com.android.application' }
 
+def stableKeyPath = System.getenv('STRA_SIGNING_KEYSTORE_PATH')
+def stableStorePassword = System.getenv('STRA_SIGNING_KEYSTORE_PASSWORD')
+def stableKeyPassword = System.getenv('STRA_SIGNING_KEY_PASSWORD')
+def stableKeyAlias = System.getenv('STRA_SIGNING_KEY_ALIAS') ?: 'stra-release'
+
 android {
     namespace 'cn.stra.ace5pro.autoclicker'
     compileSdk 35
@@ -8,17 +13,30 @@ android {
         applicationId 'cn.stra.autoclicker'
         minSdk 26
         targetSdk 35
-        versionCode 9
-        versionName '2.0.7-ace5pro'
+        versionCode 10
+        versionName '2.0.8-ace5pro'
     }
 
     buildTypes {
         debug {
-            // Uses Android's default debug keystore.
+            // Uses the stable release key in CI when configured; otherwise Gradle's debug key.
         }
         release {
             minifyEnabled false
             // Configure your own signingConfig before publishing a release build.
         }
     }
+}
+
+if (stableKeyPath && stableStorePassword && stableKeyPassword) {
+    android.signingConfigs.create('stableRelease') {
+        storeFile file(stableKeyPath)
+        storePassword stableStorePassword
+        keyAlias stableKeyAlias
+        keyPassword stableKeyPassword
+    }
+    android.buildTypes.getByName('debug').signingConfig =
+            android.signingConfigs.getByName('stableRelease')
+    android.buildTypes.getByName('release').signingConfig =
+            android.signingConfigs.getByName('stableRelease')
 }

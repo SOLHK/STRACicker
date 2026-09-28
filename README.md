@@ -3,7 +3,7 @@
 STRA 连点器，当前针对 OnePlus Ace 5 Pro（PKR110）优化。
 
 ## 当前版本
-v2.0.6
+v2.0.8
 
 ## 功能
 - Root + uinput 虚拟触摸
@@ -17,6 +17,8 @@ v2.0.6
 - 测速使用纳秒时钟，避免用毫秒分辨率伪报微秒级平均间隔
 - 急停 Root 清理在后台执行，独立校验 PID 后结束触摸进程
 - 速度测试按 1 秒窗口实时统计；悬浮控制器提供 0.5/1/5/10 ms 快捷周期
+- 悬浮窗默认不抢其它应用的输入焦点；编辑周期输入框时临时切换到键盘输入模式
+- 固定签名由 GitHub Actions Secrets 中的 `STRA_SIGNING_KEYSTORE_BASE64` 与 `STRA_SIGNING_KEYSTORE_PASSWORD` 提供；未配置时只生成临时签名 debug 包
 
 ## 构建环境
 - Java 17

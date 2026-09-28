@@ -9,14 +9,20 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
+import android.graphics.Point;
+import android.graphics.Rect;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.view.KeyEvent;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewTreeObserver;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -60,6 +66,7 @@ public final class OverlayService extends Service {
 
     private boolean deleteMode = false;
     private boolean runningUi = false;
+    private boolean panelInputFocusMode = false;
     private int markerSizePx;
 
     private final Runnable clockTicker = new Runnable() {
@@ -184,6 +191,10 @@ public final class OverlayService extends Service {
         e.setText(value);
         e.setHint(hint);
         e.setSingleLine(true);
+        e.setFocusable(true);
+        e.setFocusableInTouchMode(true);
+        e.setShowSoftInputOnFocus(true);
+        e.setImeOptions(EditorInfo.IME_ACTION_DONE);
         e.setTextSize(13.5f);
         e.setTextColor(Color.WHITE);
         e.setHintTextColor(Color.rgb(113, 125, 147));
@@ -195,7 +206,66 @@ public final class OverlayService extends Service {
 
         e.setBackground(bg(Color.argb(225, 23, 29, 42), 12));
         e.setPadding(dp(7), 0, dp(7), 0);
+        e.setOnTouchListener((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                enablePanelInputFocus(e);
+            }
+            return false;
+        });
+        e.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_DONE
+                    || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
+                hidePanelInput();
+                return true;
+            }
+            return false;
+        });
         return e;
+    }
+
+    private void enablePanelInputFocus(EditText target) {
+        if (panelLp == null || panel == null) return;
+        panelInputFocusMode = true;
+        panelLp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE;
+        panelLp.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        try { wm.updateViewLayout(panel, panelLp); } catch (Throwable ignored) {}
+        target.requestFocus();
+        target.postDelayed(() -> {
+            InputMethodManager imm =
+                    (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (imm != null) imm.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT);
+        }, 120L);
+    }
+
+    private void hidePanelInput() {
+        View focused = panel == null ? null : panel.findFocus();
+        if (focused != null) {
+            InputMethodManager imm =
+                    (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (imm != null) imm.hideSoftInputFromWindow(focused.getWindowToken(), 0);
+            focused.clearFocus();
+        }
+        main.postDelayed(this::disablePanelInputFocus, 250L);
+    }
+
+    private void disablePanelInputFocus() {
+        if (!panelInputFocusMode || panelLp == null || panel == null) return;
+        if (isKeyboardVisible()) return;
+        panelInputFocusMode = false;
+        panelLp.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        panelLp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+                | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN;
+        try { wm.updateViewLayout(panel, panelLp); } catch (Throwable ignored) {}
+    }
+
+    private boolean isKeyboardVisible() {
+        if (panel == null || wm == null) return false;
+        Rect frame = new Rect();
+        panel.getWindowVisibleDisplayFrame(frame);
+        Point size = new Point();
+        wm.getDefaultDisplay().getRealSize(size);
+        return size.y - frame.bottom > dp(160);
     }
 
     private void createPanel() {
@@ -349,7 +419,8 @@ public final class OverlayService extends Service {
                 dp(320),
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 type,
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                         | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT);
@@ -357,8 +428,19 @@ public final class OverlayService extends Service {
         panelLp.gravity = Gravity.TOP | Gravity.START;
         panelLp.x = prefs.getInt("panel_x", dp(10));
         panelLp.y = prefs.getInt("panel_y", dp(64));
+        panelLp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+                | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN;
 
         wm.addView(panel, panelLp);
+
+        panel.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
+            if (panelInputFocusMode && !isKeyboardVisible()) {
+                main.postDelayed(this::disablePanelInputFocus, 300L);
+            }
+        });
+        panel.getViewTreeObserver().addOnWindowFocusChangeListener(hasFocus -> {
+            if (!hasFocus && panelInputFocusMode) main.post(this::disablePanelInputFocus);
+        });
 
         titleText.setOnTouchListener(new PanelDrag());
 

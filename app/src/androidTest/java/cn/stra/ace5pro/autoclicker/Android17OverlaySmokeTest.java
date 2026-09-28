@@ -2,6 +2,7 @@ package cn.stra.ace5pro.autoclicker;
 
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNull;
 
 import android.content.Context;
 import android.content.Intent;
@@ -24,6 +25,7 @@ import org.junit.runner.RunWith;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.regex.Pattern;
 
 /** Runs the real app UI on API 37; native root tapping itself needs an Ace 5 Pro. */
 @RunWith(AndroidJUnit4.class)
@@ -42,6 +44,8 @@ public final class Android17OverlaySmokeTest {
         UiScrollable page = new UiScrollable(new UiSelector().scrollable(true));
         assertTrue(page.scrollTextIntoView("开启悬浮控制器"));
         assertNotNull(device.wait(Until.findObject(By.text("开启悬浮控制器")), 10000));
+        assertNull("duplicate overlay permission tile should be removed",
+                device.findObject(By.text("悬浮权限")));
     }
 
     @Test public void overlayCanCollapseMoveExpandAndExportLogs() throws Exception {
@@ -52,8 +56,10 @@ public final class Android17OverlaySmokeTest {
         collapse.click();
 
         UiObject2 mini = device.wait(
-                Until.findObject(By.desc("轻点停止并展开，拖动移动位置")), 5000);
-        assertNotNull("collapsed overlay must remain visible as a draggable icon", mini);
+                Until.findObject(By.desc("轻点暂停并展开，拖动移动位置")), 5000);
+        assertNotNull("collapsed overlay must remain visible as a draggable clock pill", mini);
+        assertNotNull("collapsed overlay must keep the Beijing time visible",
+                device.wait(Until.findObject(By.text(Pattern.compile("\\d{2}:\\d{2}:\\d{2}"))), 5000));
         Point before = mini.getVisibleCenter();
         mini.drag(new Point(before.x + 160, before.y + 180), 700);
         device.waitForIdle();

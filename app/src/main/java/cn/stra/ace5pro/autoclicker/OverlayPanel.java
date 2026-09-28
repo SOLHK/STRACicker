@@ -14,6 +14,7 @@ import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -24,8 +25,10 @@ import java.util.List;
 
 /** Presentation only. Root operations and task lifecycle live in OverlayService. */
 final class OverlayPanel extends LinearLayout {
-    final LinearLayout expanded, header, body;
-    final TextView title, clock, clockStatus, status, pointCount, mini;
+    static final int MINI_WIDTH_DP = 104;
+    static final int MINI_HEIGHT_DP = 44;
+    final LinearLayout expanded, header, body, mini;
+    final TextView title, clock, clockStatus, status, pointCount, miniClock;
     final MaterialButton collapse, close, add, delete, clear, start, stop;
     final int surface, ink, muted, accent, onAccent, container;
     private final List<MaterialButton> presets = new ArrayList<>();
@@ -107,7 +110,26 @@ final class OverlayPanel extends LinearLayout {
         stop.setTextColor(ink); stop.setIconTint(ColorStateList.valueOf(ink));
         actions.addView(start, new LayoutParams(0, dp(56), 1.6f)); LayoutParams stopLp = new LayoutParams(0, dp(56), 1); stopLp.leftMargin=dp(8); actions.addView(stop, stopLp);
         LayoutParams actionsLp=new LayoutParams(-1,-2); actionsLp.topMargin=dp(8); expanded.addView(actions,actionsLp);
-        mini=text("S",21,onAccent); mini.setTypeface(null,1); mini.setGravity(Gravity.CENTER); mini.setBackground(shape(accent,24)); mini.setContentDescription("轻点暂停并展开，拖动移动位置"); mini.setVisibility(GONE); addView(mini,new LayoutParams(dp(48),dp(48)));
+        mini = new LinearLayout(c);
+        mini.setOrientation(HORIZONTAL);
+        mini.setGravity(Gravity.CENTER_VERTICAL);
+        mini.setPadding(dp(7), 0, dp(10), 0);
+        GradientDrawable miniBackground = shape(surface, 22);
+        miniBackground.setStroke(dp(1), accent);
+        mini.setBackground(miniBackground);
+        ImageView miniMark = new ImageView(c);
+        miniMark.setImageResource(R.drawable.ic_stra_mark);
+        mini.addView(miniMark, new LayoutParams(dp(28), dp(28)));
+        miniClock = text("--:--:--", 11.5f, ink);
+        miniClock.setTypeface(android.graphics.Typeface.create("sans-serif-medium", 0));
+        miniClock.setFontFeatureSettings("tnum");
+        miniClock.setContentDescription("北京时间");
+        LayoutParams miniClockLp = new LayoutParams(-2, -2);
+        miniClockLp.leftMargin = dp(5);
+        mini.addView(miniClock, miniClockLp);
+        mini.setContentDescription("轻点暂停并展开，拖动移动位置");
+        mini.setVisibility(GONE);
+        addView(mini, new LayoutParams(dp(MINI_WIDTH_DP), dp(MINI_HEIGHT_DP)));
         setCollapsed(false);
     }
     void setCollapsed(boolean collapsed) {

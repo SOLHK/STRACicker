@@ -19,6 +19,7 @@ import android.system.Os;
 import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -34,6 +35,7 @@ public final class MainActivity extends Activity {
     private final SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm:ss", Locale.CHINA);
     private int bg, surface, surfaceAlt, ink, muted, primary, primaryInk, outline, good;
     private View rootState, overlayState, engineState;
+    private boolean waitingForOverlayPermission;
     private TextView beijingTime, beijingSource;
 
     private final Runnable ticker = new Runnable() {
@@ -50,7 +52,15 @@ public final class MainActivity extends Activity {
         BeijingTimeManager.ensureSync(this);
     }
 
-    @Override protected void onResume() { super.onResume(); refresh(); handler.post(ticker); }
+    @Override protected void onResume() {
+        super.onResume();
+        refresh();
+        handler.post(ticker);
+        if (waitingForOverlayPermission) {
+            waitingForOverlayPermission = false;
+            if (Settings.canDrawOverlays(this)) startOverlayService();
+        }
+    }
     @Override protected void onPause() { handler.removeCallbacks(ticker); super.onPause(); }
 
     private void resolvePalette() {
@@ -100,9 +110,11 @@ public final class MainActivity extends Activity {
         page.setPadding(dp(20), dp(50), dp(20), dp(28)); page.setBackgroundColor(bg);
 
         LinearLayout brandRow = new LinearLayout(this); brandRow.setGravity(Gravity.CENTER_VERTICAL);
-        TextView mark = label("S", 16, Color.WHITE); mark.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        mark.setGravity(Gravity.CENTER); mark.setBackground(shape(primary, 15));
-        brandRow.addView(mark, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        ImageView mark = new ImageView(this);
+        mark.setImageResource(R.drawable.ic_stra_mark);
+        mark.setPadding(dp(3), dp(3), dp(3), dp(3));
+        mark.setBackground(shape(surfaceAlt, 15));
+        brandRow.addView(mark, new LinearLayout.LayoutParams(dp(36), dp(36)));
         TextView brand = label("STRA  ·  CLICK TOOLS", 12, muted); brand.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         LinearLayout.LayoutParams brandLp = new LinearLayout.LayoutParams(-2, -2); brandLp.leftMargin = dp(10);
         brandRow.addView(brand, brandLp); page.addView(brandRow);
@@ -144,15 +156,11 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams startLp = new LinearLayout.LayoutParams(-1, dp(76)); startLp.topMargin = dp(18);
         page.addView(start, startLp); start.setOnClickListener(v -> startOverlay());
 
-        LinearLayout tools = new LinearLayout(this); tools.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout speed = tile("速度测试", "CPS 与点击间隔", "↗");
-        LinearLayout access = tile("悬浮权限", "授权与窗口管理", "◉");
-        tools.addView(speed, new LinearLayout.LayoutParams(0, dp(108), 1));
-        LinearLayout.LayoutParams accessLp = new LinearLayout.LayoutParams(0, dp(108), 1); accessLp.leftMargin = dp(10);
-        tools.addView(access, accessLp); LinearLayout.LayoutParams toolsLp = new LinearLayout.LayoutParams(-1, -2); toolsLp.topMargin = dp(10);
-        page.addView(tools, toolsLp);
+        LinearLayout speed = tile("速度测试", "测量 CPS 与点击间隔", "↗");
+        LinearLayout.LayoutParams speedLp = new LinearLayout.LayoutParams(-1, dp(82));
+        speedLp.topMargin = dp(10);
+        page.addView(speed, speedLp);
         speed.setOnClickListener(v -> startActivity(new Intent(this, SpeedTestActivity.class)));
-        access.setOnClickListener(v -> openOverlaySettings());
 
         LinearLayout logs = action("导出诊断日志", "生成文本文件，方便发送排查", "↗", surface, primary);
         LinearLayout.LayoutParams logsLp = new LinearLayout.LayoutParams(-1, dp(66));
@@ -185,10 +193,28 @@ public final class MainActivity extends Activity {
     }
 
     private LinearLayout tile(String title, String sub, String iconText) {
-        LinearLayout card = new LinearLayout(this); card.setOrientation(LinearLayout.VERTICAL); card.setPadding(dp(14), dp(13), dp(14), dp(12)); card.setBackground(shape(surface, 22));
-        TextView icon = label(iconText, 18, primary); icon.setGravity(Gravity.CENTER); icon.setBackground(shape(surfaceAlt, 16)); card.addView(icon, new LinearLayout.LayoutParams(dp(34), dp(34)));
-        TextView t = label(title, 14, ink); t.setTypeface(Typeface.DEFAULT, Typeface.BOLD); LinearLayout.LayoutParams tLp = new LinearLayout.LayoutParams(-1, -2); tLp.topMargin = dp(7); card.addView(t, tLp);
-        TextView s = label(sub, 10.5f, muted); LinearLayout.LayoutParams sLp = new LinearLayout.LayoutParams(-1, -2); sLp.topMargin = dp(2); card.addView(s, sLp); return card;
+        LinearLayout card = new LinearLayout(this);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(dp(16), dp(10), dp(16), dp(10));
+        card.setBackground(shape(surface, 22));
+        TextView icon = label(iconText, 19, primary);
+        icon.setGravity(Gravity.CENTER);
+        icon.setBackground(shape(surfaceAlt, 16));
+        card.addView(icon, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams copyLp = new LinearLayout.LayoutParams(0, -2, 1);
+        copyLp.leftMargin = dp(13);
+        copy.addView(label(title, 14, ink));
+        TextView subtitle = label(sub, 11, muted);
+        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(-1, -2);
+        subLp.topMargin = dp(3);
+        copy.addView(subtitle, subLp);
+        card.addView(copy, copyLp);
+        TextView arrow = label("›", 24, muted);
+        arrow.setGravity(Gravity.CENTER);
+        card.addView(arrow, new LinearLayout.LayoutParams(dp(28), -1));
+        return card;
     }
 
     private String deviceText() {
@@ -197,8 +223,18 @@ public final class MainActivity extends Activity {
     }
 
     private void startOverlay() {
-        if (!Settings.canDrawOverlays(this)) { openOverlaySettings(); Toast.makeText(this, "请先授予悬浮窗权限", Toast.LENGTH_SHORT).show(); return; }
-        BeijingTimeManager.ensureSync(this); Intent i = new Intent(this, OverlayService.class);
+        if (!Settings.canDrawOverlays(this)) {
+            waitingForOverlayPermission = true;
+            openOverlaySettings();
+            Toast.makeText(this, "首次使用请授予一次悬浮窗权限", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        startOverlayService();
+    }
+
+    private void startOverlayService() {
+        BeijingTimeManager.ensureSync(this);
+        Intent i = new Intent(this, OverlayService.class);
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(i); else startService(i);
         Toast.makeText(this, "STRA 悬浮控制器已开启", Toast.LENGTH_SHORT).show();
     }

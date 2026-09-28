@@ -52,7 +52,7 @@ public final class OverlayService extends Service {
     private LinearLayout panel;
     private LinearLayout body;
     private LinearLayout header;
-    private TextView miniIcon;
+    private View miniIcon;
     private TextView clockView;
     private WindowManager.LayoutParams panelLp;
     private View pickOverlay;
@@ -350,7 +350,7 @@ public final class OverlayService extends Service {
         panelLp.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
         panelLp.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
         panelUi.setCollapsed(true);
-        panelLp.width = dp(48); panelLp.height = dp(48);
+        panelLp.width = dp(OverlayPanel.MINI_WIDTH_DP); panelLp.height = dp(OverlayPanel.MINI_HEIGHT_DP);
         clampPanel();
         DiagnosticLog.record(this, "Overlay collapsed to draggable icon");
     }
@@ -386,6 +386,7 @@ public final class OverlayService extends Service {
         String time = timeFmt.format(new Date(now));
 
         beijingClock.setText(time);
+        panelUi.miniClock.setText(time);
         panelUi.clockStatus.setText("北京时间\n" + (BeijingTimeManager.isSynced(this) ? "已校时" : BeijingTimeManager.isSyncing() ? "校时中" : "系统时间"));
     }
 

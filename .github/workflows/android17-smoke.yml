@@ -18,6 +18,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Install Android 17 preview platform
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null
+          "$SDKMANAGER" --channel=3 --install "platforms;android-37"
       - name: Run UI smoke test on Android 17
         uses: reactivecircus/android-emulator-runner@v2
         with:
